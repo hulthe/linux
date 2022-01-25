@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# UTF-8 normalization
+
+config EXFAT_RUST
+	bool "Enabled building of the Rust version of exFAT in place of the C version"
+	help
+	  Say Y here to swap exFAT to use the Rust version instead of the C version.
+	default n
