@@ -14,6 +14,9 @@
 #include <linux/errname.h>
 #include <linux/file.h>
 #include <linux/fs.h>
+#include <linux/blkdev.h>
+#include <linux/magic.h>
+#include <linux/time64.h>
 #include <linux/fs_context.h>
 #include <linux/fs_parser.h>
 #include <linux/gpio/driver.h>

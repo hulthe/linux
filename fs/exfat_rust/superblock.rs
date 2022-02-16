@@ -1,39 +1,43 @@
+use kernel::bindings::{ kuid_t, kgid_t };
+use kernel::c_types;
+use crate::null;
+
 // port of `exfat_sb_info` in exfat_fs.h
 #[allow(dead_code)]
 #[derive(Default)]
 pub(crate) struct SuperBlockInfo {
     /// num of sectors in volume
-    num_sectors: u64,
+    pub(crate) num_sectors: u64,
     /// num of clusters in volume
-    num_clusters: u32,
+    pub(crate) num_clusters: u32,
     /// cluster size in bytes
-    cluster_size: u32,
-    cluster_size_bits: u32,
+    pub(crate) cluster_size: u32,
+    pub(crate) cluster_size_bits: u32,
     /// cluster size in sectors
-    sect_per_clus: u32,
-    sect_per_clus_bits: u32,
+    pub(crate) sect_per_clus: u32,
+    pub(crate) sect_per_clus_bits: u32,
     /// FAT1 start sector
-    fat1_start_sector: u64,
+    pub(crate) fat1_start_sector: u64,
     /// FAT2 start sector
-    fat2_start_sector: u64,
+    pub(crate) fat2_start_sector: u64,
     /// data area start sector
-    data_start_sector: u64,
+    pub(crate) data_start_sector: u64,
     /// num of FAT sectors
-    num_fat_sectors: u32,
+    pub(crate) num_fat_sectors: u32,
     /// root dir cluster
-    root_dir: u32,
+    pub(crate) root_dir: u32,
     /// num of dentries per cluster
-    dentries_per_clu: u32,
+    pub(crate) dentries_per_clu: u32,
     /// volume flags
-    vol_flags: u32,
+    pub(crate) vol_flags: u32,
     /// volume flags to retain
-    vol_flags_persistent: u32,
+    pub(crate) vol_flags_persistent: u32,
     // /// buffer_head of BOOT sector
     //struct buffer_head *boot_bh,
     /// allocation bitmap start cluster
-    map_clu: u32,
+    pub(crate) map_clu: u32,
     /// num of allocation bitmap sectors
-    map_sectors: u32,
+    pub(crate) map_sectors: u32,
     /// allocation bitmap
     //struct buffer_head **vol_amap,
 
@@ -41,14 +45,14 @@ pub(crate) struct SuperBlockInfo {
     //unsigned short *vol_utbl,
 
     /// cluster search pointer
-    clu_srch_ptr: u32,
+    pub(crate) clu_srch_ptr: u32,
     /// number of used clusters
-    used_clusters: u32,
+    pub(crate) used_clusters: u32,
     // /// superblock lock
     //struct mutex s_lock,
     // /// bitmap lock
     //struct mutex bitmap_lock,
-    //struct exfat_mount_options options,
+    pub(crate) options: ExfatMountOptions,
     // /// Charset used for input and display
     //struct nls_table *nls_io,
     //struct ratelimit_state ratelimit,
@@ -57,4 +61,52 @@ pub(crate) struct SuperBlockInfo {
     //struct hlist_head inode_hashtable[EXFAT_HASH_SIZE],
 
     //struct rcu_head rcu,
+}
+
+#[repr(C)]
+pub(crate) enum ExfatErrorMode {
+    EXFAT_ERRORS_CONT,
+    EXFAT_ERRORS_PANIC,
+    EXFAT_ERRORS_RO,
+}
+
+impl ExfatErrorMode {
+    pub(crate) const fn get_name(self) -> *const c_types::c_char {
+        match self {
+            ExfatErrorMode::EXFAT_ERRORS_CONT => b"continue\0".as_ptr() as *const i8,
+            ExfatErrorMode::EXFAT_ERRORS_PANIC => b"panic\0".as_ptr() as *const i8,
+            ExfatErrorMode::EXFAT_ERRORS_RO => b"remount-ro\0".as_ptr() as *const i8,
+        }
+    }
+}
+
+pub(crate) struct ExfatMountOptions {
+    pub(crate) fs_uid: kuid_t,
+    pub(crate) fs_gid: kgid_t,
+    pub(crate) fs_fmask: c_types::c_ushort,
+    pub(crate) fs_dmask: c_types::c_ushort,
+    /* Permission for setting the [am]time*/
+    pub(crate) allow_utime: c_types::c_ushort,
+    pub(crate) iocharset: *const c_types::c_char,
+    pub(crate) errors: ExfatErrorMode,
+    pub(crate) utf8: bool,
+    pub(crate) discard: bool,
+    pub(crate) time_offset: c_types::c_int,
+}
+
+impl Default for ExfatMountOptions {
+    fn default() -> Self {
+        Self {
+            fs_uid: kuid_t::default(),
+            fs_gid: kgid_t::default(),
+            fs_fmask: 0,
+            fs_dmask: 0,
+            allow_utime: 0,
+            iocharset: null(),
+            errors: ExfatErrorMode::EXFAT_ERRORS_CONT,
+            utf8: true,
+            discard: true,
+            time_offset: 0
+        }
+    }
 }

@@ -8,14 +8,15 @@ use kernel::bindings::{
     fs_context_operations as FsContextOps, fs_param_deprecated, fs_param_is_enum, fs_param_is_s32,
     fs_param_is_string, fs_param_is_u32, fs_param_type, hlist_head as HlistHead, kill_block_super,
     lock_class_key as LockClassKey, register_filesystem, unregister_filesystem, FS_REQUIRES_DEV,
-    fs_parameter_spec,
+    fs_parameter_spec, super_block, get_tree_bdev, block_device as BlockDevice, request_queue as RequestQueue,
+    QUEUE_FLAG_DISCARD, SB_NODIRATIME, EXFAT_SUPER_MAGIC, super_operations as SuperOperations, NSEC_PER_MSEC,
 };
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
 use kernel::Result;
 use kernel::ThisModule;
-use superblock::SuperBlockInfo;
+use superblock::{SuperBlockInfo, ExfatErrorMode, ExfatMountOptions};
 
 struct ExFatRust;
 
@@ -134,23 +135,6 @@ impl FsParameterSpec {
     }
 }
 
-#[repr(C)]
-enum ExfatErrorMode {
-    EXFAT_ERRORS_CONT,
-    EXFAT_ERRORS_PANIC,
-    EXFAT_ERRORS_RO,
-}
-
-impl ExfatErrorMode {
-    const fn get_name(self) -> *const c_types::c_char {
-        match self {
-            ExfatErrorMode::EXFAT_ERRORS_CONT => b"continue\0".as_ptr() as *const i8,
-            ExfatErrorMode::EXFAT_ERRORS_PANIC => b"panic\0".as_ptr() as *const i8,
-            ExfatErrorMode::EXFAT_ERRORS_RO => b"remount-ro\0".as_ptr() as *const i8,
-        }
-    }
-}
-
 static EXFAT_PARAM_ENUMS: &[ConstantTable] = &[
     ConstantTable {
         name: ExfatErrorMode::EXFAT_ERRORS_CONT.get_name(),
@@ -264,13 +248,97 @@ static mut FS_TYPE: FileSystemType = FileSystemType {
 static mut CONTEXT_OPS: FsContextOps = FsContextOps {
     free: None,        // TODO
     parse_param: None, // TODO
-    get_tree: None,    // TODO
+    get_tree: Some(exfat_get_tree),    // TODO
     reconfigure: None, // TODO
 
     // not needed?
     dup: None,
     parse_monolithic: None,
 };
+
+macro_rules! get_exfat_sb_from_sb {
+    ($x: expr) => { {
+        let fs_info = $x.s_fs_info as *mut SuperBlockInfo;
+        unsafe { &mut *fs_info }
+    } }
+}
+
+macro_rules! bdev_get_queue {
+    ($bdev: expr) => {{
+        let bdev = unsafe { *$bdev };
+        let queue = unsafe { *bdev }.bd_queue;
+        unsafe { &mut *queue }
+    }}
+}
+
+extern "C" fn exfat_get_tree(fc: *mut fs_context) -> c_types::c_int {
+    return unsafe { get_tree_bdev(fc, Some(exfat_fill_super)) };
+}
+
+static mut EXFAT_SOPS: SuperOperations = SuperOperations {
+    alloc_inode: None, // TODO
+    free_inode:  None, // TODO
+    write_inode: None, // TODO
+    evict_inode: None, // TODO
+    put_super: None, // TODO
+    sync_fs: None, // TODO
+    statfs: None, // TODO
+    show_options: None, // TODO
+
+    // Not implemented in C version
+    destroy_inode: None,
+    dirty_inode: None,
+    drop_inode: None,
+    freeze_super: None,
+    freeze_fs: None,
+    thaw_super: None,
+    unfreeze_fs: None,
+    remount_fs: None,
+    umount_begin: None,
+    show_devname: None,
+    show_path: None,
+    show_stats: None,
+    quota_read: None,
+    quota_write: None,
+    get_dquots: None,
+    nr_cached_objects: None,
+    free_cached_objects: None
+};
+
+/* Jan 1 GMT 00:00:00 1980 */
+const EXFAT_MIN_TIMESTAMP_SECS: i64 = 315532800;
+/* Dec 31 GMT 23:59:59 2107 */
+const EXFAT_MAX_TIMESTAMP_SECS: i64 = 4354819199;
+
+extern "C" fn exfat_fill_super(mut sb: *mut super_block, fc: *mut fs_context) -> c_types::c_int {
+    // Do some things?
+    let mut sb = unsafe { *sb };
+    let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(&mut sb);
+    let opts: &mut ExfatMountOptions = &mut exfat_sb_info.options;
+
+    if opts.allow_utime == u16::MAX {
+        opts.allow_utime = !opts.fs_dmask & 0022;
+    }
+
+    if opts.discard {
+        let queue: &mut RequestQueue = bdev_get_queue!(&mut sb.s_bdev);
+
+        if (queue.queue_flags >> QUEUE_FLAG_DISCARD) & 1 == 0 {
+            // The DISCARD flag is not set for the device
+            // TODO: print warning
+            opts.discard = false;
+        }
+    }
+
+    sb.s_flags |= SB_NODIRATIME as u64;
+    sb.s_magic = EXFAT_SUPER_MAGIC as u64;
+    sb.s_op = unsafe { &EXFAT_SOPS as *const _ };
+
+    sb.s_time_gran = 10 * NSEC_PER_MSEC;
+    sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
+
+    0
+}
 
 macro_rules! from_kernel_result {
     ($($tt:tt)*) => {{
