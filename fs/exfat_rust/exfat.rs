@@ -336,8 +336,15 @@ extern "C" fn exfat_fill_super(mut sb: *mut super_block, fc: *mut fs_context) ->
 
     sb.s_time_gran = 10 * NSEC_PER_MSEC;
     sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
+    sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
+
+    __exfat_fill_super(sb)?;
 
     0
+}
+
+fn read_exfat_partition() {
+    // TODO: Fill in code from __exfat_fill_super.
 }
 
 macro_rules! from_kernel_result {
