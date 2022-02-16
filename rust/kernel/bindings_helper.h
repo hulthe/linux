@@ -19,6 +19,7 @@
 #include <linux/time64.h>
 #include <linux/fs_context.h>
 #include <linux/fs_parser.h>
+#include <linux/buffer_head.h>
 #include <linux/gpio/driver.h>
 #include <linux/hw_random.h>
 #include <linux/interrupt.h>
