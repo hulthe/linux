@@ -1,6 +1,7 @@
-use kernel::bindings::{ kuid_t, kgid_t };
-use kernel::c_types;
 use crate::null;
+use kernel::bindings::{kgid_t, kuid_t};
+use kernel::c_types;
+use kernel::prelude::*;
 
 // port of `exfat_sb_info` in exfat_fs.h
 #[allow(dead_code)]
@@ -42,7 +43,7 @@ pub(crate) struct SuperBlockInfo {
     //struct buffer_head **vol_amap,
 
     // /// upcase table
-    //unsigned short *vol_utbl,
+    pub(crate) vol_utbl: Option<Box<[u16]>>,
 
     /// cluster search pointer
     pub(crate) clu_srch_ptr: u32,
@@ -106,7 +107,7 @@ impl Default for ExfatMountOptions {
             errors: ExfatErrorMode::EXFAT_ERRORS_CONT,
             utf8: true,
             discard: true,
-            time_offset: 0
+            time_offset: 0,
         }
     }
 }

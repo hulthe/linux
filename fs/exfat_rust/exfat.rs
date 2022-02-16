@@ -1,22 +1,26 @@
 //! A Rust implementation of the exFAT filesystem
 
+mod checksum;
+mod external;
 mod superblock;
+mod upcase;
 
 use core::ptr::{null, null_mut};
 use kernel::bindings::{
-    constant_table, file_system_type as FileSystemType, fs_context,
+    block_device as BlockDevice, constant_table, file_system_type as FileSystemType, fs_context,
     fs_context_operations as FsContextOps, fs_param_deprecated, fs_param_is_enum, fs_param_is_s32,
-    fs_param_is_string, fs_param_is_u32, fs_param_type, hlist_head as HlistHead, kill_block_super,
-    lock_class_key as LockClassKey, register_filesystem, unregister_filesystem, FS_REQUIRES_DEV,
-    fs_parameter_spec, super_block, get_tree_bdev, block_device as BlockDevice, request_queue as RequestQueue,
-    QUEUE_FLAG_DISCARD, SB_NODIRATIME, EXFAT_SUPER_MAGIC, super_operations as SuperOperations, NSEC_PER_MSEC,
+    fs_param_is_string, fs_param_is_u32, fs_param_type, fs_parameter_spec, get_tree_bdev,
+    hlist_head as HlistHead, kill_block_super, lock_class_key as LockClassKey, register_filesystem,
+    request_queue as RequestQueue, super_block, super_operations as SuperOperations,
+    unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV, NSEC_PER_MSEC, QUEUE_FLAG_DISCARD,
+    SB_NODIRATIME,
 };
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
 use kernel::Result;
 use kernel::ThisModule;
-use superblock::{SuperBlockInfo, ExfatErrorMode, ExfatMountOptions};
+use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
 
 struct ExFatRust;
 
@@ -246,29 +250,29 @@ static mut FS_TYPE: FileSystemType = FileSystemType {
 };
 
 static mut CONTEXT_OPS: FsContextOps = FsContextOps {
-    free: None,        // TODO
-    parse_param: None, // TODO
-    get_tree: Some(exfat_get_tree),    // TODO
-    reconfigure: None, // TODO
+    free: None,                     // TODO
+    parse_param: None,              // TODO
+    get_tree: Some(exfat_get_tree), // TODO
+    reconfigure: None,              // TODO
 
     // not needed?
     dup: None,
     parse_monolithic: None,
 };
 
+#[macro_export]
 macro_rules! get_exfat_sb_from_sb {
-    ($x: expr) => { {
+    ($x: expr) => {{
         let fs_info = $x.s_fs_info as *mut SuperBlockInfo;
         unsafe { &mut *fs_info }
-    } }
+    }};
 }
 
 macro_rules! bdev_get_queue {
     ($bdev: expr) => {{
-        let bdev = unsafe { *$bdev };
-        let queue = unsafe { *bdev }.bd_queue;
+        let queue = unsafe { &mut **$bdev }.bd_queue;
         unsafe { &mut *queue }
-    }}
+    }};
 }
 
 extern "C" fn exfat_get_tree(fc: *mut fs_context) -> c_types::c_int {
@@ -276,13 +280,13 @@ extern "C" fn exfat_get_tree(fc: *mut fs_context) -> c_types::c_int {
 }
 
 static mut EXFAT_SOPS: SuperOperations = SuperOperations {
-    alloc_inode: None, // TODO
-    free_inode:  None, // TODO
-    write_inode: None, // TODO
-    evict_inode: None, // TODO
-    put_super: None, // TODO
-    sync_fs: None, // TODO
-    statfs: None, // TODO
+    alloc_inode: None,  // TODO
+    free_inode: None,   // TODO
+    write_inode: None,  // TODO
+    evict_inode: None,  // TODO
+    put_super: None,    // TODO
+    sync_fs: None,      // TODO
+    statfs: None,       // TODO
     show_options: None, // TODO
 
     // Not implemented in C version
@@ -302,7 +306,7 @@ static mut EXFAT_SOPS: SuperOperations = SuperOperations {
     quota_write: None,
     get_dquots: None,
     nr_cached_objects: None,
-    free_cached_objects: None
+    free_cached_objects: None,
 };
 
 /* Jan 1 GMT 00:00:00 1980 */
