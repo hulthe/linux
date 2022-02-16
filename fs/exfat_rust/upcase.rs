@@ -7,10 +7,15 @@ use kernel::bindings::{sector_t, super_block};
 use kernel::prelude::*;
 use kernel::{Error, Result};
 
-const NUM_UPCASE: usize = 2918;
+//const NUM_UPCASE: usize = 2918;
 const UTBL_COUNT: usize = 0x10000;
 
-pub(crate) fn load_upcase_table(
+pub(crate) fn create_upcase_table(_sb: &mut super_block) -> Result {
+    todo!()
+}
+
+#[allow(dead_code)] // TODO
+fn load_upcase_table(
     sb: &mut super_block,
     mut sector: sector_t,
     mut num_sectors: u64,

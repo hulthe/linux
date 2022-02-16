@@ -4,7 +4,7 @@ use kernel::c_types;
 use kernel::prelude::*;
 
 // port of `exfat_sb_info` in exfat_fs.h
-#[allow(dead_code)]
+#[allow(dead_code)] // TODO
 #[derive(Default)]
 pub(crate) struct SuperBlockInfo {
     /// num of sectors in volume
@@ -64,23 +64,25 @@ pub(crate) struct SuperBlockInfo {
     //struct rcu_head rcu,
 }
 
+#[allow(dead_code)] // TODO
 #[repr(C)]
 pub(crate) enum ExfatErrorMode {
-    EXFAT_ERRORS_CONT,
-    EXFAT_ERRORS_PANIC,
-    EXFAT_ERRORS_RO,
+    Continue,
+    Panic,
+    RemountRo,
 }
 
 impl ExfatErrorMode {
     pub(crate) const fn get_name(self) -> *const c_types::c_char {
         match self {
-            ExfatErrorMode::EXFAT_ERRORS_CONT => b"continue\0".as_ptr() as *const i8,
-            ExfatErrorMode::EXFAT_ERRORS_PANIC => b"panic\0".as_ptr() as *const i8,
-            ExfatErrorMode::EXFAT_ERRORS_RO => b"remount-ro\0".as_ptr() as *const i8,
+            ExfatErrorMode::Continue => b"continue\0".as_ptr() as *const i8,
+            ExfatErrorMode::Panic => b"panic\0".as_ptr() as *const i8,
+            ExfatErrorMode::RemountRo => b"remount-ro\0".as_ptr() as *const i8,
         }
     }
 }
 
+#[allow(dead_code)] // TODO
 pub(crate) struct ExfatMountOptions {
     pub(crate) fs_uid: kuid_t,
     pub(crate) fs_gid: kgid_t,
@@ -104,7 +106,7 @@ impl Default for ExfatMountOptions {
             fs_dmask: 0,
             allow_utime: 0,
             iocharset: null(),
-            errors: ExfatErrorMode::EXFAT_ERRORS_CONT,
+            errors: ExfatErrorMode::Continue,
             utf8: true,
             discard: true,
             time_offset: 0,

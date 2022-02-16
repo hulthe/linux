@@ -1,3 +1,4 @@
+#[allow(dead_code)] // TODO
 #[derive(PartialEq, Eq)]
 pub(crate) enum ChecksumType {
     DirEntry = 0,

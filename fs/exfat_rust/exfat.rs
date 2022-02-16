@@ -7,13 +7,12 @@ mod upcase;
 
 use core::ptr::{null, null_mut};
 use kernel::bindings::{
-    block_device as BlockDevice, constant_table, file_system_type as FileSystemType, fs_context,
-    fs_context_operations as FsContextOps, fs_param_deprecated, fs_param_is_enum, fs_param_is_s32,
-    fs_param_is_string, fs_param_is_u32, fs_param_type, fs_parameter_spec, get_tree_bdev,
-    hlist_head as HlistHead, kill_block_super, lock_class_key as LockClassKey, register_filesystem,
-    request_queue as RequestQueue, super_block, super_operations as SuperOperations,
-    unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV, NSEC_PER_MSEC, QUEUE_FLAG_DISCARD,
-    SB_NODIRATIME,
+    file_system_type as FileSystemType, fs_context, fs_context_operations as FsContextOps,
+    fs_param_deprecated, fs_param_is_s32, fs_param_is_u32, fs_param_type, fs_parameter_spec,
+    get_tree_bdev, hlist_head as HlistHead, kill_block_super, lock_class_key as LockClassKey,
+    register_filesystem, request_queue as RequestQueue, super_block,
+    super_operations as SuperOperations, unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV,
+    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME,
 };
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
@@ -24,23 +23,41 @@ use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
 
 struct ExFatRust;
 
+/// Table entry to map between kernel "constants" and our "constants"
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct ConstantTable {
+    /// The kernel's name of the constant
     pub name: *const c_types::c_char,
+
+    /// Our value used to represent the constant
     pub value: c_types::c_int,
 }
 
 unsafe impl Send for ConstantTable {}
 unsafe impl Sync for ConstantTable {}
 
+/// Specification of the type of value a parameter wants.
+///
+/// (FIXME: copied comment from C)
+/// Note that the fsparam_flag(), fsparam_string(), fsparam_u32(), ... methods
+/// should be used to generate elements of this type.
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct FsParameterSpec {
+    /// The parameter name
     pub name: *const c_types::c_char,
+
+    /// The desured parameter type
     pub type_: fs_param_type,
+
+    /// Option number (returned by fs_parse())
     pub opt: u8,
+
+    /// TODO
     pub flags: c_types::c_ushort,
+
+    /// TODO
     pub data: *const c_types::c_void,
 }
 
@@ -141,16 +158,17 @@ impl FsParameterSpec {
 
 static EXFAT_PARAM_ENUMS: &[ConstantTable] = &[
     ConstantTable {
-        name: ExfatErrorMode::EXFAT_ERRORS_CONT.get_name(),
-        value: ExfatErrorMode::EXFAT_ERRORS_CONT as i32,
+        name: ExfatErrorMode::Continue.get_name(),
+        value: ExfatErrorMode::Continue as i32,
     },
     ConstantTable {
-        name: ExfatErrorMode::EXFAT_ERRORS_PANIC.get_name(),
-        value: ExfatErrorMode::EXFAT_ERRORS_PANIC as i32,
+        name: ExfatErrorMode::Panic.get_name(),
+        value: ExfatErrorMode::Panic as i32,
     },
+    // FIXME: vidde, borde inte detta vara Remount? Vi har Panic på raden över...
     ConstantTable {
-        name: ExfatErrorMode::EXFAT_ERRORS_PANIC.get_name(),
-        value: ExfatErrorMode::EXFAT_ERRORS_PANIC as i32,
+        name: ExfatErrorMode::Panic.get_name(),
+        value: ExfatErrorMode::Panic as i32,
     },
     // Null terminator?
     ConstantTable {
@@ -260,6 +278,7 @@ static mut CONTEXT_OPS: FsContextOps = FsContextOps {
     parse_monolithic: None,
 };
 
+/// Read our SuperBlockInfo from the kernels super_block
 #[macro_export]
 macro_rules! get_exfat_sb_from_sb {
     ($x: expr) => {{
@@ -268,10 +287,25 @@ macro_rules! get_exfat_sb_from_sb {
     }};
 }
 
+/// Read a bdev_queue from a &mut *mut bdev
+#[macro_export]
 macro_rules! bdev_get_queue {
     ($bdev: expr) => {{
         let queue = unsafe { &mut **$bdev }.bd_queue;
         unsafe { &mut *queue }
+    }};
+}
+
+/// Convert a block returning kernel::Result to returning c_int, useful for extern functions
+#[macro_export]
+macro_rules! from_kernel_result {
+    ($($tt:tt)*) => {{
+        match (|| {
+            $($tt)*
+        })() {
+            kernel::Result::Ok(()) => 0,
+            kernel::Result::Err(e) => e.to_kernel_errno(),
+        }
     }};
 }
 
@@ -314,54 +348,58 @@ const EXFAT_MIN_TIMESTAMP_SECS: i64 = 315532800;
 /* Dec 31 GMT 23:59:59 2107 */
 const EXFAT_MAX_TIMESTAMP_SECS: i64 = 4354819199;
 
-extern "C" fn exfat_fill_super(mut sb: *mut super_block, fc: *mut fs_context) -> c_types::c_int {
-    // Do some things?
-    let mut sb = unsafe { *sb };
-    let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(&mut sb);
-    let opts: &mut ExfatMountOptions = &mut exfat_sb_info.options;
+extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_types::c_int {
+    from_kernel_result! {
+        // Do some things?
+        let mut sb = unsafe { *sb };
+        let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(&mut sb);
+        let opts: &mut ExfatMountOptions = &mut exfat_sb_info.options;
 
-    if opts.allow_utime == u16::MAX {
-        opts.allow_utime = !opts.fs_dmask & 0022;
-    }
-
-    if opts.discard {
-        let queue: &mut RequestQueue = bdev_get_queue!(&mut sb.s_bdev);
-
-        if (queue.queue_flags >> QUEUE_FLAG_DISCARD) & 1 == 0 {
-            // The DISCARD flag is not set for the device
-            // TODO: print warning
-            opts.discard = false;
+        if opts.allow_utime == u16::MAX {
+            opts.allow_utime = !opts.fs_dmask & 0022;
         }
+
+        if opts.discard {
+            let queue: &mut RequestQueue = bdev_get_queue!(&mut sb.s_bdev);
+
+            if (queue.queue_flags >> QUEUE_FLAG_DISCARD) & 1 == 0 {
+                // The DISCARD flag is not set for the device
+                // TODO: print warning
+                opts.discard = false;
+            }
+        }
+
+        sb.s_flags |= SB_NODIRATIME as u64;
+        sb.s_magic = EXFAT_SUPER_MAGIC as u64;
+        sb.s_op = unsafe { &EXFAT_SOPS as *const _ };
+
+        sb.s_time_gran = 10 * NSEC_PER_MSEC;
+        sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
+        sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
+
+        read_exfat_partition(&mut sb)?;
+
+        Ok(())
     }
-
-    sb.s_flags |= SB_NODIRATIME as u64;
-    sb.s_magic = EXFAT_SUPER_MAGIC as u64;
-    sb.s_op = unsafe { &EXFAT_SOPS as *const _ };
-
-    sb.s_time_gran = 10 * NSEC_PER_MSEC;
-    sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
-    sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
-
-    __exfat_fill_super(sb)?;
-
-    0
 }
 
-fn read_exfat_partition() {
+fn read_exfat_partition(sb: &mut super_block) -> Result {
     // TODO: Fill in code from __exfat_fill_super.
+    // 1. exfat_read_boot_sector
+
+    // 2. exfat_verify_boot_region
+
+    // 3. exfat_create_upcase_table
+    upcase::create_upcase_table(sb)?;
+
+    // 4. exfat_load_bitmap
+
+    // 5. exfat_count_used_clusters
+
+    Ok(())
 }
 
-macro_rules! from_kernel_result {
-    ($($tt:tt)*) => {{
-        match (|| {
-            $($tt)*
-        })() {
-            kernel::Result::Ok(()) => 0,
-            kernel::Result::Err(e) => e.to_kernel_errno(),
-        }
-    }};
-}
-
+/// Initialize ExFat SuperBlockInfo and pass it to fs_context
 pub extern "C" fn init_fs_context(fc: *mut fs_context) -> c_int {
     from_kernel_result! {
         pr_info!("init_fs_context called");
