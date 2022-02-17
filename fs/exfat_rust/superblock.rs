@@ -6,34 +6,8 @@ use kernel::prelude::*;
 // port of `exfat_sb_info` in exfat_fs.h
 #[allow(dead_code)] // TODO
 #[derive(Default)]
-pub(crate) struct SuperBlockInfo {
-    /// num of sectors in volume
-    pub(crate) num_sectors: u64,
-    /// num of clusters in volume
-    pub(crate) num_clusters: u32,
-    /// cluster size in bytes
-    pub(crate) cluster_size: u32,
-    pub(crate) cluster_size_bits: u32,
-    /// cluster size in sectors
-    pub(crate) sect_per_clus: u32,
-    pub(crate) sect_per_clus_bits: u32,
-    /// FAT1 start sector
-    pub(crate) fat1_start_sector: u64,
-    /// FAT2 start sector
-    pub(crate) fat2_start_sector: u64,
-    /// data area start sector
-    pub(crate) data_start_sector: u64,
-    /// num of FAT sectors
-    pub(crate) num_fat_sectors: u32,
-    /// root dir cluster
-    pub(crate) root_dir: u32,
-    /// num of dentries per cluster
-    pub(crate) dentries_per_clu: u32,
-    /// volume flags
-    pub(crate) vol_flags: u32,
-    /// volume flags to retain
-    pub(crate) vol_flags_persistent: u32,
-    // /// buffer_head of BOOT sector
+pub(crate) struct SuperBlockInfo {    // /// buffer_head of BOOT sector
+    pub(crate) boot_sector_info: BootSectorInfo,
     //struct buffer_head *boot_bh,
     /// allocation bitmap start cluster
     pub(crate) map_clu: u32,
@@ -45,10 +19,6 @@ pub(crate) struct SuperBlockInfo {
     // /// upcase table
     pub(crate) vol_utbl: Option<Box<[u16]>>,
 
-    /// cluster search pointer
-    pub(crate) clu_srch_ptr: u32,
-    /// number of used clusters
-    pub(crate) used_clusters: u32,
     // /// superblock lock
     //struct mutex s_lock,
     // /// bitmap lock
@@ -62,6 +32,40 @@ pub(crate) struct SuperBlockInfo {
     //struct hlist_head inode_hashtable[EXFAT_HASH_SIZE],
 
     //struct rcu_head rcu,
+}
+
+#[derive(Default)]
+pub(crate) struct BootSectorInfo {
+    /// num of sectors in volume
+    pub(crate) num_sectors: u64,
+    /// num of clusters in volume
+    pub(crate) num_clusters: u32,
+    /// cluster size in bytes
+    pub(crate) cluster_size: u32,
+    pub(crate) cluster_size_bits: u32,
+    /// cluster size in sectors
+    pub(crate) sect_per_clus: u32,
+    pub(crate) sect_per_clus_bits: u32,
+    /// FAT1 start sector
+    pub(crate) fat1_start_sector: u64,
+    /// FAT2 start sector
+    pub(crate) fat2_start_sector: Option<u64>,
+    /// data area start sector
+    pub(crate) data_start_sector: u64,
+    /// num of FAT sectors
+    pub(crate) num_fat_sectors: u32,
+    /// root dir cluster
+    pub(crate) root_dir: u32,
+    /// num of dentries per cluster
+    pub(crate) dentries_per_clu: u32,
+    /// volume flags
+    pub(crate) vol_flags: u32,
+    /// volume flags to retain
+    pub(crate) vol_flags_persistent: u32,
+    /// cluster search pointer
+    pub(crate) clu_srch_ptr: u32,
+    /// number of used clusters
+    pub(crate) used_clusters: u32,
 }
 
 #[allow(dead_code)] // TODO
