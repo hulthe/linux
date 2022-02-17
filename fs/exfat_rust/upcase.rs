@@ -30,7 +30,7 @@ fn load_upcase_table(
 
     let mut unicode_index = 0;
     let mut checksum = 0;
-    let mut skip = false;
+    let mut read_skip = false;
     num_sectors += sector;
 
     while sector < num_sectors {
@@ -45,26 +45,32 @@ fn load_upcase_table(
         let b_data = unsafe { slice::from_raw_parts(b_data, sector_size) };
 
         let mut last_index = 0;
-        for (i, code_point) in b_data
+        for (i, entry) in b_data
             .chunks_exact(2)
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .enumerate()
         {
             last_index = i * 2;
 
+            // check if we've read the entire range of unicode values
             if unicode_index > 0xffff {
                 break;
             }
 
-            if skip {
-                unicode_index += code_point as usize; // what???
-                skip = false;
-            } else if code_point as usize == unicode_index {
+            if read_skip {
+                // we're reading a compressed range of identity mapping
+                // this entry tells us how many code points we should skip
+                unicode_index += entry as usize;
+                read_skip = false;
+            } else if entry == 0xffff {
+                // the next entry will be a compressed range of identity mappings.
+                read_skip = true;
+            } else if entry as usize == unicode_index {
+                // this entry is an identity mapping, we can skip it
                 unicode_index += 1;
-            } else if code_point == 0xffff {
-                skip = true;
             } else {
-                upcase_table[unicode_index] = code_point;
+                // this entry is an actual upcase mapping, add it to the table
+                upcase_table[unicode_index] = entry;
                 unicode_index += 1;
             }
         }

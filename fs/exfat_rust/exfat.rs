@@ -1,7 +1,9 @@
 //! A Rust implementation of the exFAT filesystem
 
 mod checksum;
+mod directory;
 mod external;
+mod fat;
 mod superblock;
 mod upcase;
 

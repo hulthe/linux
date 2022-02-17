@@ -7,7 +7,7 @@ use kernel::c_types::c_uint;
 pub(crate) fn sb_bread(sb: &mut super_block, block: sector_t) -> Option<&mut buffer_head> {
     unsafe {
         // TODO: is this the right ___GFP_MOVABLE? (two vs three underscores)
-        // SAFEY: i have no idea
+        // SAFETY: i have no idea
         __bread_gfp(sb.s_bdev, block, sb.s_blocksize as c_uint, ___GFP_MOVABLE).as_mut()
     }
 }
