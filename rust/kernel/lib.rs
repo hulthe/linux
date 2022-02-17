@@ -51,6 +51,7 @@ pub mod clk;
 pub mod cred;
 pub mod device;
 pub mod driver;
+pub mod endian;
 mod error;
 pub mod file;
 pub mod file_operations;
