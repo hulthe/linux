@@ -34,6 +34,7 @@ pub(crate) struct SuperBlockInfo {    // /// buffer_head of BOOT sector
     //struct rcu_head rcu,
 }
 
+#[allow(dead_code)] // TODO
 #[derive(Default)]
 pub(crate) struct BootSectorInfo {
     /// num of sectors in volume
