@@ -1,8 +1,7 @@
 use crate::checksum::{calc_checksum_16, ChecksumType};
-use crate::external::sb_bread;
+use crate::external::BufferHead;
 use crate::get_exfat_sb_from_sb;
 use crate::superblock::SuperBlockInfo;
-use core::slice;
 use kernel::bindings::{sector_t, super_block};
 use kernel::prelude::*;
 use kernel::{Error, Result};
@@ -10,7 +9,7 @@ use kernel::{Error, Result};
 //const NUM_UPCASE: usize = 2918;
 const UTBL_COUNT: usize = 0x10000;
 
-pub(crate) fn create_upcase_table(_sb: &mut super_block) -> Result {
+pub(crate) fn create_upcase_table(sb: &mut super_block) -> Result {
     todo!()
 }
 
@@ -34,15 +33,14 @@ fn load_upcase_table(
     num_sectors += sector;
 
     while sector < num_sectors {
-        let bh = sb_bread(sb, sector).ok_or_else(|| {
+        let bh = BufferHead::block_read(sb, sector).ok_or_else(|| {
             // TODO: log err: failed to read sector
             Error::EIO
         })?;
 
         sector += 1;
 
-        let b_data = bh.b_data as *const u8;
-        let b_data = unsafe { slice::from_raw_parts(b_data, sector_size) };
+        let b_data = &bh.bytes()[..sector_size];
 
         let mut last_index = 0;
         for (i, entry) in b_data
