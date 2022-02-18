@@ -9,7 +9,7 @@ pub(crate) struct BufferHead {
 }
 
 impl BufferHead {
-    pub(crate) fn block_read(sb: &mut super_block, block: sector_t) -> Option<Self> {
+    pub(crate) fn block_read(sb: &super_block, block: sector_t) -> Option<Self> {
         let ptr = unsafe {
             // TODO: is this the right ___GFP_MOVABLE? (two vs three underscores)
             // SAFETY: i have no idea
