@@ -1,9 +1,11 @@
 use kernel::bindings::{sb_min_blocksize, super_block};
 use crate::{get_exfat_sb_from_sb};
 use crate::superblock::{BootSectorInfo, SuperBlockInfo};
-use kernel::{Result, Error, pr_err};
+use kernel::{Result, Error, pr_err, pr_warn};
 use kernel::endian::{u16le, u32le, u64le};
-use crate::external::sb_bread;
+use crate::external::{BufferHead};
+use crate::checksum::{calc_checksum_32, ChecksumType};
+use core::mem::size_of;
 
 const JUMP_BOOT_VALUE: [u8; 3] = [0xEB, 0x76, 0x90];
 const FILESYSTEM_NAME: &[u8] = b"EXFAT   ";
@@ -25,6 +27,8 @@ const EXFAT_FIRST_CLUSTER: u32 = 2;
 const EXFAT_CLUSTERS_UNTRACKED: u32 = !0;
 
 const MUST_BE_ZERO_LEN: usize = 53;
+
+const EXBOOT_SIGNATURE: u32 = 0xAA550000;
 
 #[repr(C)]
 #[allow(dead_code)]
@@ -61,12 +65,13 @@ pub(crate) fn read_boot_sector(sb: &mut super_block) -> Result<&mut SuperBlockIn
     unsafe { sb_min_blocksize(sb, 512) };
 
     // The boot sector should be the first on the disk, read sector 0.
-    let bh = sb_bread(sb, 0).ok_or_else(|| {
+    let bh =  BufferHead::block_read(sb, 0)
+    .ok_or_else(|| {
         pr_err!("unable to read boot sector");
         Error::EIO
     })?;
 
-    let b_data = bh.b_data as *const BootRegion;
+    let b_data = bh.raw_bytes() as *const BootRegion;
     let boot_region = unsafe { &*b_data };
 
     // TODO: Ensure conversion from little endian.
@@ -144,4 +149,56 @@ pub(crate) fn read_boot_sector(sb: &mut super_block) -> Result<&mut SuperBlockIn
 
     sbi.boot_sector_info = boot_sector_info;
     Ok(sbi)
+}
+
+pub(crate) fn verify_boot_region(sb: &mut super_block) -> Result {
+    let mut checksum: u32 = 0;
+
+    // Read boot sector sub-regions
+    for sn in 0..11 {
+        let bh = BufferHead::block_read(sb, sn).ok_or(Error::EIO)?;
+
+        let sector_data = bh.bytes();
+
+        // Check boot signature for Main Extended Boot Sectors (sectors 1 to 8).
+        if 0 < sn && sn <= 8 {
+            let blocksize = sb.s_blocksize as usize;
+            // Assumes that sector_data is at least blocksize long
+            // and that blocksize > 4
+            let signature = u32::from_le_bytes(
+                sector_data[blocksize - 4..blocksize]
+                    .try_into()
+                    .or_else(|_| Err(Error::EIO))?
+            );
+
+            if signature != EXBOOT_SIGNATURE {
+                pr_warn!("Invalid exboot-signature {}", signature);
+            }
+        }
+
+        checksum = calc_checksum_32(sector_data, checksum,
+                                        if sn == 0 { ChecksumType::BootSector }
+                                        else       { ChecksumType::Default });
+    }
+
+    // Boot checksum sub-regions
+    let bh = BufferHead::block_read(sb, 11).ok_or(Error::EIO)?;
+    let sector_data: &[u8] = bh.bytes();
+
+    for i in (0..sb.s_blocksize).step_by(size_of::<u32>()) {
+        let i = i as usize;
+        // Assumes that sector_data is i + 4 long.
+        let checksum_on_disk = u32::from_le_bytes(
+            sector_data[i..i+4]
+                .try_into()
+                .or_else(|_| Err(Error::EIO))?
+        );
+
+        if checksum_on_disk != checksum {
+            pr_err!("Invalid boot checksum (on disk: {}, calculated: {})", checksum_on_disk, checksum);
+            return Err(Error::EINVAL);
+        }
+    }
+
+    Ok(())
 }

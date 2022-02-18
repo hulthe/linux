@@ -25,6 +25,10 @@ impl BufferHead {
             slice::from_raw_parts(bh.b_data as *const u8, bh.b_size)
         }
     }
+
+    pub(crate) fn raw_bytes(&self) -> *const u8 {
+        self.bytes().as_ptr()
+    }
 }
 
 impl Drop for BufferHead {

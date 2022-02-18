@@ -15,7 +15,24 @@ pub(crate) fn calc_checksum_16(data: &[u8], mut checksum: u16, checksum_type: Ch
         let tail = &data[4..];
         head.iter().chain(tail.iter()).copied().for_each(calc);
     } else {
-        data.iter().copied().for_each(calc)
+        data.iter().copied().for_each(calc);
+    }
+
+    checksum
+}
+
+pub(crate) fn calc_checksum_32(data: &[u8], mut checksum: u32, checksum_type: ChecksumType) -> u32 {
+    let calc = |byte: u8| checksum = ((checksum << 31) | (checksum >> 1)) + byte as u32;
+
+    if checksum_type == ChecksumType::BootSector {
+        // Skip volume flags & percent in use fields for checksum calculation
+        // (indicies 106, 107 and 112)
+        data.iter().copied().enumerate()
+            .filter(|(index, _)| [106, 107, 112].contains(index))
+            .map(|(_, b)| b)
+            .for_each(calc);
+    } else {
+        data.iter().copied().for_each(calc);
     }
 
     checksum
