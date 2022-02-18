@@ -371,8 +371,66 @@ fn read_exfat_partition(sb: &mut super_block) -> Result {
     // 4. exfat_load_bitmap
 
     // 5. exfat_count_used_clusters
+    count_used_clusters(sb);
 
     Ok(())
+}
+
+const EXFAT_RESERVED_CLUSTERS: u32 = 2;
+const BITS_PER_BYTE_MASK: u32 = 0x7;
+const BITS_PER_BYTE: usize = 8;
+
+const USED_BIT: [u8; 256] = [
+    0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3,/*  0 ~  19*/
+    2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 1, 2, 2, 3, 2, 3, 3, 4,/* 20 ~  39*/
+    2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5,/* 40 ~  59*/
+    4, 5, 5, 6, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,/* 60 ~  79*/
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 3, 3, 4,/* 80 ~  99*/
+    3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6,/*100 ~ 119*/
+    4, 5, 5, 6, 5, 6, 6, 7, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4,/*120 ~ 139*/
+    3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,/*140 ~ 159*/
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5,/*160 ~ 179*/
+    4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 2, 3, 3, 4, 3, 4, 4, 5,/*180 ~ 199*/
+    3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6,/*200 ~ 219*/
+    5, 6, 6, 7, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,/*220 ~ 239*/
+    4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8,            /*240 ~ 255*/
+];
+
+const LAST_BIT_MASK: [u8; 8] = [0, 0b00000001, 0b00000011, 0b00000111,
+    0b00001111, 0b00011111, 0b00111111, 0b01111111];
+
+fn count_used_clusters(sb: &mut super_block) -> u32 {
+    let sbi: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
+    let total_clus = sbi.boot_sector_info.num_clusters - EXFAT_RESERVED_CLUSTERS;
+    let last_mask = total_clus & BITS_PER_BYTE_MASK;
+
+    let total_clus = total_clus & !last_mask;
+    let mut map_i = 0;
+    let mut map_b = 0;
+    let mut clu_bits = 0;
+    let mut count = 0;
+    for _ in (0..total_clus).step_by(BITS_PER_BYTE) {
+        // TODO: Finish when vol_amap is implemented.
+        // clu_bits = sbi.vol_amap[map_i].b_data + map_b;
+
+        // Assumes that clu_bits < used_bit length.
+        count += USED_BIT[clu_bits] as u32;
+        map_b += 1;
+        if map_b >= sb.s_blocksize {
+            map_i += 1;
+            map_b = 0;
+        }
+    }
+
+    if last_mask != 0 {
+        // TODO: Finish when vol_amap is implemented.
+        // clu_bits = sbi.vol_amap[map_i].b_data + map_b;
+
+        clu_bits &= LAST_BIT_MASK[last_mask as usize] as usize;
+        count += USED_BIT[clu_bits] as u32;
+    }
+
+    count
 }
 
 /// Initialize ExFat SuperBlockInfo and pass it to fs_context
