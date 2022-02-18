@@ -363,6 +363,7 @@ fn read_exfat_partition(sb: &mut super_block) -> Result {
     boot_sector::read_boot_sector(sb)?;
 
     // 2. exfat_verify_boot_region
+    boot_sector::verify_boot_region(sb)?;
 
     // 3. exfat_create_upcase_table
     upcase::create_upcase_table(sb)?;
