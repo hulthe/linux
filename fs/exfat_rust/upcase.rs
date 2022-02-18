@@ -9,7 +9,8 @@ use kernel::{Error, Result};
 //const NUM_UPCASE: usize = 2918;
 const UTBL_COUNT: usize = 0x10000;
 
-pub(crate) fn create_upcase_table(sb: &mut super_block) -> Result {
+pub(crate) fn create_upcase_table(_sb: &mut super_block) -> Result {
+    // TODO: scan the root directory set and read the allocation bitmap
     todo!()
 }
 
