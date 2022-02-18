@@ -7,7 +7,7 @@ mod fat;
 mod superblock;
 mod upcase;
 mod boot_sector;
-mod helpers;
+mod macros;
 
 use core::ptr::{null, null_mut};
 use kernel::bindings::{
