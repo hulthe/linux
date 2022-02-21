@@ -1,22 +1,28 @@
+use crate::allocation_bitmap::AllocationBitmap;
+use crate::inode::InodeHashTable;
+use alloc::string::String;
 use kernel::bindings::{kgid_t, kuid_t};
 use kernel::c_types;
 use kernel::prelude::*;
 use kernel::sync::SpinLock;
-use crate::inode::InodeHashTable;
-use alloc::string::String;
+
+pub(crate) type SuperBlock = kernel::bindings::super_block;
+
+const NUM_RESERVED_CLUSTERS: u32 = 2;
 
 // port of `exfat_sb_info` in exfat_fs.h
 #[allow(dead_code)] // TODO
 #[derive(Default)]
-pub(crate) struct SuperBlockInfo {    // /// buffer_head of BOOT sector
+pub(crate) struct SuperBlockInfo {
+    // /// buffer_head of BOOT sector
     pub(crate) boot_sector_info: BootSectorInfo,
+
     //struct buffer_head *boot_bh,
     /// allocation bitmap start cluster
     pub(crate) map_clu: u32,
-    /// num of allocation bitmap sectors
-    pub(crate) map_sectors: u32,
+
     /// allocation bitmap
-    //struct buffer_head **vol_amap,
+    pub(crate) allocation_bitmap: Option<AllocationBitmap>,
 
     // /// upcase table
     pub(crate) vol_utbl: Option<Box<[u16]>>,
@@ -33,8 +39,29 @@ pub(crate) struct SuperBlockInfo {    // /// buffer_head of BOOT sector
     // TODO: Inspect performance of this, original implementation used a hashtable of
     // Linked lists (for collisions?)
     pub(crate) inode_hashtable: Option<SpinLock<InodeHashTable>>,
-
     //struct rcu_head rcu,
+}
+
+pub(crate) trait SuperBlockExt {
+    fn info(&self) -> &SuperBlockInfo;
+    fn info_mut(&mut self) -> &mut SuperBlockInfo;
+    fn bytes_to_sectors(&self, bytes: u64) -> u64;
+}
+
+impl SuperBlockExt for SuperBlock {
+    fn info(&self) -> &SuperBlockInfo {
+        let fs_info = self.s_fs_info as *mut SuperBlockInfo;
+        unsafe { &*fs_info }
+    }
+
+    fn info_mut(&mut self) -> &mut SuperBlockInfo {
+        let fs_info = self.s_fs_info as *mut SuperBlockInfo;
+        unsafe { &mut *fs_info }
+    }
+
+    fn bytes_to_sectors(&self, bytes: u64) -> u64 {
+        ((bytes - 1) >> (self.s_blocksize_bits)) + 1
+    }
 }
 
 #[allow(dead_code)] // TODO
@@ -70,6 +97,12 @@ pub(crate) struct BootSectorInfo {
     pub(crate) clu_srch_ptr: u32,
     /// number of used clusters
     pub(crate) used_clusters: u32,
+}
+
+impl BootSectorInfo {
+    pub(crate) fn cluster_count(&self) -> u32 {
+        self.num_clusters - NUM_RESERVED_CLUSTERS
+    }
 }
 
 #[allow(dead_code)] // TODO
