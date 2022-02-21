@@ -1,5 +1,6 @@
 //! A Rust implementation of the exFAT filesystem
 
+mod allocation_bitmap;
 mod boot_sector;
 mod checksum;
 mod directory;
@@ -385,6 +386,7 @@ fn read_exfat_partition(sb: &mut super_block) -> Result {
     upcase::create_upcase_table(sb)?;
 
     // 4. exfat_load_bitmap
+    allocation_bitmap::load_allocation_bitmap(sb)?;
 
     // 5. exfat_count_used_clusters
     count_used_clusters(sb);
@@ -456,6 +458,7 @@ pub extern "C" fn init_fs_context(fc: *mut fs_context) -> c_int {
         pr_info!("init_fs_context called");
 
         // TODO: properly initialize sb
+        // TODO: might overflow the stack
         let sbi = Box::try_new(SuperBlockInfo::default())?;
 
         let fc = unsafe { &mut *fc };

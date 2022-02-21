@@ -1,6 +1,8 @@
 use crate::checksum::{calc_checksum_16, ChecksumType};
+use crate::directory::{DirEntry, DirEntryReader};
 use crate::external::BufferHead;
 use crate::get_exfat_sb_from_sb;
+use crate::heap::cluster_to_sector;
 use crate::superblock::SuperBlockInfo;
 use kernel::bindings::{sector_t, super_block};
 use kernel::prelude::*;
@@ -9,9 +11,38 @@ use kernel::{Error, Result};
 //const NUM_UPCASE: usize = 2918;
 const UTBL_COUNT: usize = 0x10000;
 
-pub(crate) fn create_upcase_table(_sb: &mut super_block) -> Result {
+pub(crate) fn create_upcase_table(sb: &mut super_block) -> Result {
     // TODO: scan the root directory set and read the allocation bitmap
-    todo!()
+    let sbi = get_exfat_sb_from_sb!(sb);
+    let root_dir = sbi.boot_sector_info.root_dir;
+
+    let upcase_entry = DirEntryReader::new(sb, root_dir)?
+        .find_map(|entry| match entry {
+            Err(e) => Some(Err(e)),
+            Ok(DirEntry::UpCaseTable(entry)) => Some(Ok(entry)),
+            Ok(_) => None,
+        })
+        .transpose()?;
+
+    match upcase_entry {
+        Some(table) => {
+            let sector = cluster_to_sector(sbi, table.first_cluster.to_native());
+            let num_sectors = ((table.data_length.to_native() - 1) >> sb.s_blocksize_bits) + 1;
+
+            match load_upcase_table(sb, sector, num_sectors, table.table_checksum.to_native()) {
+                e @ Err(Error::EIO) => return e,
+                Err(_) => {
+                    // TODO: load default table
+                    todo!("load default table")
+                }
+                Ok(()) => Ok(()),
+            }
+        }
+        None => {
+            // TODO: load default table
+            todo!("load default table")
+        }
+    }
 }
 
 #[allow(dead_code)] // TODO
@@ -21,6 +52,8 @@ fn load_upcase_table(
     mut num_sectors: u64,
     utbl_checksum: u32,
 ) -> Result {
+    // TODO: we might want to rewrite this to use ClusterChain
+
     let sbi: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
     let sector_size = sb.s_blocksize as usize;
 

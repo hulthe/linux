@@ -1,7 +1,6 @@
 use crate::external::BufferHead;
-use crate::superblock::SuperBlockInfo;
+use crate::superblock::SuperBlock;
 use core::mem::size_of;
-use kernel::bindings::super_block;
 use kernel::{Error, Result};
 
 pub(crate) type ClusterIndex = u32;
@@ -10,28 +9,21 @@ const FAT_ENTRY_FREE: u32 = 0;
 const FAT_ENTRY_BAD: u32 = 0xFFFFFFF7;
 const FAT_ENTRY_EOF: u32 = 0xFFFFFFFF;
 
-/// One entry in the FAT
-#[derive(Debug)]
-pub(crate) enum FatEntry {
-    /// The corresponding cluster is bad
-    Bad,
-
-    /// The corresponding cluster the last of a cluster chain
-    LastOfChain,
-
-    /// This points to the *next* FatEntry in the given cluster chain.
-    ///
-    /// This must not point to a FatEntry that preceeds it
-    NextFat(ClusterIndex),
-}
-
 pub(crate) struct FatChainReader<'a> {
-    sb: &'a super_block,
-    sbi: &'a SuperBlockInfo,
+    sb: &'a SuperBlock,
     next: Option<ClusterIndex>,
 }
 
-impl<'a> Iterator for FatChainReader<'a> {
+impl<'a> FatChainReader<'a> {
+    pub(crate) fn new(sb: &'a SuperBlock, index: ClusterIndex) -> Self {
+        FatChainReader {
+            sb,
+            next: Some(index),
+        }
+    }
+}
+
+impl Iterator for FatChainReader<'_> {
     type Item = Result<ClusterIndex>;
 
     fn next(&mut self) -> Option<Self::Item> {
