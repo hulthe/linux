@@ -175,6 +175,7 @@ static mut EXFAT_SOPS: SuperOperations = SuperOperations {
 const EXFAT_MIN_TIMESTAMP_SECS: i64 = 315532800;
 /* Dec 31 GMT 23:59:59 2107 */
 const EXFAT_MAX_TIMESTAMP_SECS: i64 = 4354819199;
+const UTF8: &str = "utf8";
 
 extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_types::c_int {
     from_kernel_result! {
@@ -208,6 +209,12 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
         read_exfat_partition(&mut sb)?;
 
         exfat_hash_init(&mut sb);
+
+        if opts.iocharset != UTF8 {
+            opts.utf8 = true;
+        } else {
+            // TODO: charset stuff!??!?!
+        }
 
         Ok(())
     }
