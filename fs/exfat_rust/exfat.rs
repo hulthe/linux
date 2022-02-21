@@ -11,6 +11,7 @@ mod macros;
 mod superblock;
 mod upcase;
 mod inode;
+mod constant_table;
 
 use core::ptr::{null, null_mut};
 use kernel::bindings::{
@@ -29,22 +30,9 @@ use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
 use inode::InodeHashTable;
 use core::pin::Pin;
 use kernel::sync::SpinLock;
+use constant_table::ConstantTable;
 
 struct ExFatRust;
-
-/// Table entry to map between kernel "constants" and our "constants"
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct ConstantTable {
-    /// The kernel's name of the constant
-    pub name: *const c_types::c_char,
-
-    /// Our value used to represent the constant
-    pub value: c_types::c_int,
-}
-
-unsafe impl Send for ConstantTable {}
-unsafe impl Sync for ConstantTable {}
 
 /// Specification of the type of value a parameter wants.
 ///
