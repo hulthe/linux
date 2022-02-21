@@ -12,15 +12,15 @@ mod superblock;
 mod upcase;
 mod inode;
 mod constant_table;
+mod fs_parameter;
 
 use core::ptr::{null, null_mut};
 use kernel::bindings::{
     file_system_type as FileSystemType, fs_context, fs_context_operations as FsContextOps,
-    fs_param_deprecated, fs_param_is_s32, fs_param_is_u32, fs_param_type, fs_parameter_spec,
-    get_tree_bdev, hlist_head as HlistHead, kill_block_super, lock_class_key as LockClassKey,
+    fs_param_deprecated, get_tree_bdev, hlist_head as HlistHead, kill_block_super, lock_class_key as LockClassKey,
     register_filesystem, request_queue as RequestQueue, super_block,
     super_operations as SuperOperations, unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV,
-    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME,
+    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME, fs_parameter_spec
 };
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
@@ -31,127 +31,9 @@ use inode::InodeHashTable;
 use core::pin::Pin;
 use kernel::sync::SpinLock;
 use constant_table::ConstantTable;
+use fs_parameter::{FsParameterSpec, ExfatOptions};
 
 struct ExFatRust;
-
-/// Specification of the type of value a parameter wants.
-///
-/// (FIXME: copied comment from C)
-/// Note that the fsparam_flag(), fsparam_string(), fsparam_u32(), ... methods
-/// should be used to generate elements of this type.
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct FsParameterSpec {
-    /// The parameter name
-    pub name: *const c_types::c_char,
-
-    /// The desured parameter type
-    pub type_: fs_param_type,
-
-    /// Option number (returned by fs_parse())
-    pub opt: u8,
-
-    /// TODO
-    pub flags: c_types::c_ushort,
-
-    /// TODO
-    pub data: *const c_types::c_void,
-}
-
-unsafe impl Send for FsParameterSpec {}
-unsafe impl Sync for FsParameterSpec {}
-
-impl FsParameterSpec {
-    const fn fsparam(
-        type_: fs_param_type,
-        name: &'static [u8],
-        opt: ExfatOptions,
-        flags: u32,
-        data: *const c_types::c_void,
-    ) -> FsParameterSpec {
-        FsParameterSpec {
-            name: name.as_ptr() as *const i8,
-            type_,
-            opt: opt as u8,
-            flags: flags as u16,
-            data,
-        }
-    }
-
-    const fn fsparam_u32(name: &'static [u8], opt: ExfatOptions) -> FsParameterSpec {
-        FsParameterSpec {
-            name: name.as_ptr() as *const i8,
-            type_: Some(fs_param_is_u32),
-            opt: opt as u8,
-            flags: 0,
-            data: null(),
-        }
-    }
-
-    const fn fsparam_s32(name: &'static [u8], opt: ExfatOptions) -> FsParameterSpec {
-        FsParameterSpec {
-            name: name.as_ptr() as *const i8,
-            type_: Some(fs_param_is_s32),
-            opt: opt as u8,
-            flags: 0,
-            data: null(),
-        }
-    }
-
-    const fn fsparam_u32oct(name: &'static [u8], opt: ExfatOptions) -> FsParameterSpec {
-        FsParameterSpec {
-            name: name.as_ptr() as *const i8,
-            type_: Some(fs_param_is_s32),
-            opt: opt as u8,
-            flags: 0,
-            data: 8 as *const c_types::c_void,
-        }
-    }
-
-    const fn fsparam_string(name: &'static [u8], opt: ExfatOptions) -> FsParameterSpec {
-        FsParameterSpec {
-            name: name.as_ptr() as *const i8,
-            type_: None,
-            opt: opt as u8,
-            flags: 0,
-            data: null(),
-        }
-    }
-
-    const fn fsparam_flag(name: &'static [u8], opt: ExfatOptions) -> FsParameterSpec {
-        FsParameterSpec {
-            name: name.as_ptr() as *const i8,
-            type_: None,
-            opt: opt as u8,
-            flags: 0,
-            data: null(),
-        }
-    }
-
-    const fn fsparam_enum(
-        name: &'static [u8],
-        opt: ExfatOptions,
-        array: *const c_types::c_void,
-    ) -> FsParameterSpec {
-        FsParameterSpec {
-            name: name.as_ptr() as *const i8,
-            type_: None,
-            opt: opt as u8,
-            flags: 0,
-            data: array,
-        }
-    }
-
-    const fn null() -> FsParameterSpec {
-        FsParameterSpec {
-            name: null(),
-            type_: None,
-            opt: 0,
-            flags: 0,
-            data: null(),
-        }
-    }
-}
 
 static EXFAT_PARAM_ENUMS: &[ConstantTable] = &[
     ConstantTable {
@@ -164,8 +46,8 @@ static EXFAT_PARAM_ENUMS: &[ConstantTable] = &[
     },
     // FIXME: vidde, borde inte detta vara Remount? Vi har Panic på raden över...
     ConstantTable {
-        name: ExfatErrorMode::Panic.get_name(),
-        value: ExfatErrorMode::Panic as i32,
+        name: ExfatErrorMode::RemountRo.get_name(),
+        value: ExfatErrorMode::RemountRo as i32,
     },
     // Null terminator?
     ConstantTable {
@@ -173,26 +55,6 @@ static EXFAT_PARAM_ENUMS: &[ConstantTable] = &[
         value: 0,
     },
 ];
-
-#[repr(C)]
-enum ExfatOptions {
-    Uid,
-    Gid,
-    Umask,
-    Dmask,
-    Fmask,
-    AllowUtime,
-    Charset,
-    Errors,
-    Discard,
-    TimeOffset,
-
-    /* Deprecated? */
-    Utf8,
-    Debug,
-    Namecase,
-    Codepage,
-}
 
 static EXFAT_PARAMETERS: &[FsParameterSpec] = &[
     FsParameterSpec::fsparam_u32(b"uid\0", ExfatOptions::Uid),
