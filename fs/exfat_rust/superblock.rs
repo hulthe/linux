@@ -1,7 +1,9 @@
-use crate::null;
 use kernel::bindings::{kgid_t, kuid_t};
 use kernel::c_types;
 use kernel::prelude::*;
+use kernel::sync::SpinLock;
+use crate::inode::InodeHashTable;
+use alloc::string::String;
 
 // port of `exfat_sb_info` in exfat_fs.h
 #[allow(dead_code)] // TODO
@@ -28,8 +30,9 @@ pub(crate) struct SuperBlockInfo {    // /// buffer_head of BOOT sector
     //struct nls_table *nls_io,
     //struct ratelimit_state ratelimit,
 
-    //spinlock_t inode_hash_lock,
-    //struct hlist_head inode_hashtable[EXFAT_HASH_SIZE],
+    // TODO: Inspect performance of this, original implementation used a hashtable of
+    // Linked lists (for collisions?)
+    pub(crate) inode_hashtable: Option<SpinLock<InodeHashTable>>,
 
     //struct rcu_head rcu,
 }
@@ -95,7 +98,7 @@ pub(crate) struct ExfatMountOptions {
     pub(crate) fs_dmask: c_types::c_ushort,
     /* Permission for setting the [am]time*/
     pub(crate) allow_utime: c_types::c_ushort,
-    pub(crate) iocharset: *const c_types::c_char,
+    pub(crate) iocharset: String,
     pub(crate) errors: ExfatErrorMode,
     pub(crate) utf8: bool,
     pub(crate) discard: bool,
@@ -110,7 +113,7 @@ impl Default for ExfatMountOptions {
             fs_fmask: 0,
             fs_dmask: 0,
             allow_utime: 0,
-            iocharset: null(),
+            iocharset: String::new(),
             errors: ExfatErrorMode::Continue,
             utf8: true,
             discard: true,

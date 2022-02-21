@@ -9,6 +9,7 @@ mod heap;
 mod macros;
 mod superblock;
 mod upcase;
+mod inode;
 
 use core::ptr::{null, null_mut};
 use kernel::bindings::{
@@ -22,9 +23,11 @@ use kernel::bindings::{
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
-use kernel::Result;
-use kernel::ThisModule;
+use kernel::{Result, pr_warn, ThisModule};
 use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
+use inode::InodeHashTable;
+use core::pin::Pin;
+use kernel::sync::SpinLock;
 
 struct ExFatRust;
 
@@ -338,7 +341,7 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
 
             if (queue.queue_flags >> QUEUE_FLAG_DISCARD) & 1 == 0 {
                 // The DISCARD flag is not set for the device
-                // TODO: print warning
+                pr_warn!("mounting with \"discard\" option, but the device does not support discard");
                 opts.discard = false;
             }
         }
@@ -353,8 +356,20 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
 
         read_exfat_partition(&mut sb)?;
 
+        exfat_hash_init(&mut sb);
+
         Ok(())
     }
+}
+
+fn exfat_hash_init(sb: &mut super_block) {
+    let sbi: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
+    let inode_hash_table: InodeHashTable = InodeHashTable::new();
+    // SAFETY: TODO
+    let mut inode_hash_table_lock = unsafe { SpinLock::new(inode_hash_table) };
+    // SAFETY: TODO
+    kernel::spinlock_init!(unsafe { Pin::new_unchecked(&mut inode_hash_table_lock) }, "Exfat inode hashtable spinlock");
+    sbi.inode_hashtable = Some(inode_hash_table_lock);
 }
 
 fn read_exfat_partition(sb: &mut super_block) -> Result {
