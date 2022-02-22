@@ -1,9 +1,9 @@
 use crate::external::BufferHead;
 use crate::fat::ClusterIndex;
 use crate::fat::FatChainReader;
-use crate::superblock::{SuperBlock, SuperBlockExt, SuperBlockInfo};
+use crate::superblock::{SuperBlock, SuperBlockExt, SuperBlockInfo, NUM_RESERVED_CLUSTERS};
 use core::cmp::min;
-use kernel::{Error, Result};
+use kernel::{pr_err, Error, Result};
 
 pub(crate) struct ClusterChain<'a> {
     state: Option<ClusterChainState<'a>>,
@@ -34,6 +34,11 @@ pub(crate) fn cluster_to_sector(sbi: &SuperBlockInfo, cluster: ClusterIndex) -> 
 
 impl<'a> ClusterChain<'a> {
     pub(crate) fn new(sb: &'a SuperBlock, index: ClusterIndex) -> Result<Self> {
+        if !(NUM_RESERVED_CLUSTERS..sb.info().boot_sector_info.cluster_count()).contains(&index) {
+            pr_err!("Tried to read invalid cluster index ({index})");
+            return Err(Error::EINVAL);
+        }
+
         let start_sector = cluster_to_sector(sb.info(), index);
         let state = ClusterChainState {
             sector: BufferHead::block_read(sb, start_sector).ok_or(Error::EIO)?,
