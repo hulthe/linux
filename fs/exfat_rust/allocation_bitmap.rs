@@ -8,12 +8,26 @@ use alloc::vec::Vec;
 use kernel::{pr_err, Error, Result};
 
 pub(crate) struct AllocationBitmap {
-    #[allow(dead_code)] // TODO
-    pub(crate) bitmap: Box<[u8]>,
+    // INVARIANT: the trailing bits in the last byte must be 0
+    bitmap: Box<[u8]>,
+
+    allocation_count: usize,
+
+    cluster_count: usize,
 }
 
 impl AllocationBitmap {
-    // TODO: add cool methods to check for allocations
+    //pub(crate) fn free_cluster_count(&self) -> u64 {
+    //    self.cluster_count as u64 - self.allocated_cluster_count()
+    //}
+
+    pub(crate) fn allocated_cluster_count(&self) -> u64 {
+        self.allocation_count
+    }
+
+    fn count_allocations(&mut self) {
+        self.allocation_count = self.bitmap.iter().map(|&b| b.count_ones() as u64).sum();
+    }
 }
 
 pub(crate) fn load_allocation_bitmap(sb: &mut SuperBlock) -> Result {
@@ -35,8 +49,9 @@ pub(crate) fn load_allocation_bitmap(sb: &mut SuperBlock) -> Result {
     }
 
     sbi.map_clu = bitmap_entry.first_cluster.to_native();
+    let cluster_count = sbi.boot_sector_info.cluster_count() as usize;
     let size = bitmap_entry.data_length.to_native();
-    let required_size = ((sbi.boot_sector_info.num_clusters - 1) as u64 / BITS_PER_BYTE as u64) + 1;
+    let required_size = ((cluster_count - 1) as u64 / BITS_PER_BYTE as u64) + 1;
 
     if size != required_size {
         // TODO: logging
@@ -54,17 +69,26 @@ pub(crate) fn load_allocation_bitmap(sb: &mut SuperBlock) -> Result {
     let mut bitmap = Vec::new();
 
     // normally this would just be vec![0; required_size], but we have to account for fallible
-    // allocations. TODO: figure out how to avoid thus awful loop
+    // allocations. TODO: figure out how to avoid this awful loop
     for _ in 0..required_size {
         bitmap.try_push(0)?;
     }
 
-    //
     ClusterChain::new(sb, sbi.map_clu)?.read_exact(&mut bitmap)?;
+
+    // make sure the trailing bits are 0
+    let trailing_bits = required_size as usize * BITS_PER_BYTE - cluster_count;
+    let trailing_mask = u8::MAX << trailing_bits;
+    bitmap[required_size as usize - 1] &= trailing_mask;
 
     let bitmap = bitmap.try_into_boxed_slice()?;
 
-    sbi.allocation_bitmap = Some(AllocationBitmap { bitmap });
+    sbi.allocation_bitmap = Some(AllocationBitmap {
+        bitmap,
+        cluster_count,
+        allocation_count: 0,
+    });
+    sbi.allocation_bitmap.count_allocations();
 
     Ok(())
 }

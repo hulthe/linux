@@ -108,6 +108,7 @@ static mut FS_TYPE: FileSystemType = FileSystemType {
     owner: null_mut(), // should be THIS_MODULE, is set by module init
     init_fs_context: Some(init_fs_context),
     parameters: EXFAT_PARAMETERS as *const _ as *const fs_parameter_spec,
+    // TODO: we should make sure the destructor for SuperBlockInfo is run
     kill_sb: Some(kill_block_super),
     fs_flags: FS_REQUIRES_DEV as i32,
 
@@ -179,6 +180,7 @@ const EXFAT_ROOT_INO: u64 = 1;
 
 extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_types::c_int {
     from_kernel_result! {
+        pr_info!("exfat_fill_super enter");
         // Do some things?
         let sb = unsafe { &mut *sb };
         let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
@@ -227,6 +229,7 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
         unsafe { inode_set_iversion(root_inode, 1); }
         inode::read_root_inode(root_inode, sb, exfat_sb_info)?;
 
+        pr_info!("exfat_fill_super exit");
         Ok(())
     }
 }
@@ -259,9 +262,6 @@ fn read_exfat_partition(sb: &mut super_block) -> Result {
     // 4. exfat_load_bitmap
     allocation_bitmap::load_allocation_bitmap(sb)?;
 
-    // 5. exfat_count_used_clusters
-    count_used_clusters(sb);
-
     Ok(())
 }
 
@@ -289,44 +289,10 @@ const LAST_BIT_MASK: [u8; 8] = [
     0, 0b00000001, 0b00000011, 0b00000111, 0b00001111, 0b00011111, 0b00111111, 0b01111111,
 ];
 
-fn count_used_clusters(sb: &mut super_block) -> u32 {
-    let sbi: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
-    let total_clus = sbi.boot_sector_info.num_clusters - EXFAT_RESERVED_CLUSTERS;
-    let last_mask = total_clus & BITS_PER_BYTE_MASK;
-
-    let total_clus = total_clus & !last_mask;
-    let mut map_i = 0;
-    let mut map_b = 0;
-    let mut clu_bits = 0;
-    let mut count = 0;
-    for _ in (0..total_clus).step_by(BITS_PER_BYTE) {
-        // TODO: Finish when vol_amap is implemented.
-        // clu_bits = sbi.vol_amap[map_i].b_data + map_b;
-
-        // Assumes that clu_bits < used_bit length.
-        count += USED_BIT[clu_bits] as u32;
-        map_b += 1;
-        if map_b >= sb.s_blocksize {
-            map_i += 1;
-            map_b = 0;
-        }
-    }
-
-    if last_mask != 0 {
-        // TODO: Finish when vol_amap is implemented.
-        // clu_bits = sbi.vol_amap[map_i].b_data + map_b;
-
-        clu_bits &= LAST_BIT_MASK[last_mask as usize] as usize;
-        count += USED_BIT[clu_bits] as u32;
-    }
-
-    count
-}
-
 /// Initialize ExFat SuperBlockInfo and pass it to fs_context
 pub extern "C" fn init_fs_context(fc: *mut fs_context) -> c_int {
     from_kernel_result! {
-        pr_info!("init_fs_context called");
+        pr_info!("init_fs_context enter");
 
         // TODO: properly initialize sb
         // TODO: might overflow the stack
@@ -339,6 +305,7 @@ pub extern "C" fn init_fs_context(fc: *mut fs_context) -> c_int {
         fc.ops = unsafe { &CONTEXT_OPS as *const _ };
 
 
+        pr_info!("init_fs_context exit");
         Ok(())
     }
 }

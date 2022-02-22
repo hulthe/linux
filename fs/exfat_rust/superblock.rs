@@ -8,7 +8,7 @@ use kernel::sync::SpinLock;
 
 pub(crate) type SuperBlock = kernel::bindings::super_block;
 
-const NUM_RESERVED_CLUSTERS: u32 = 2;
+pub(crate) const NUM_RESERVED_CLUSTERS: u32 = 2;
 
 // port of `exfat_sb_info` in exfat_fs.h
 #[allow(dead_code)] // TODO
@@ -50,7 +50,7 @@ pub(crate) trait SuperBlockExt {
 
 impl SuperBlockExt for SuperBlock {
     fn info(&self) -> &SuperBlockInfo {
-        let fs_info = self.s_fs_info as *mut SuperBlockInfo;
+        let fs_info = self.s_fs_info as *const SuperBlockInfo;
         unsafe { &*fs_info }
     }
 
