@@ -3,35 +3,36 @@
 mod allocation_bitmap;
 mod boot_sector;
 mod checksum;
+mod constant_table;
 mod directory;
 mod external;
 mod fat;
+mod fs_parameter;
 mod heap;
+mod inode;
 mod macros;
 mod superblock;
 mod upcase;
-mod inode;
-mod constant_table;
-mod fs_parameter;
 
+use constant_table::ConstantTable;
+use core::pin::Pin;
 use core::ptr::{null, null_mut};
+use fs_parameter::{ExfatOptions, FsParameterSpec};
+use inode::InodeHashTable;
 use kernel::bindings::{
     file_system_type as FileSystemType, fs_context, fs_context_operations as FsContextOps,
-    fs_param_deprecated, get_tree_bdev, hlist_head as HlistHead, kill_block_super, lock_class_key as LockClassKey,
-    register_filesystem, request_queue as RequestQueue, super_block,
-    super_operations as SuperOperations, unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV,
-    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME, fs_parameter_spec
+    fs_param_deprecated, fs_parameter_spec, get_tree_bdev, hlist_head as HlistHead,
+    kill_block_super, lock_class_key as LockClassKey, register_filesystem,
+    request_queue as RequestQueue, super_block, super_operations as SuperOperations,
+    unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV, NSEC_PER_MSEC, QUEUE_FLAG_DISCARD,
+    SB_NODIRATIME,
 };
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
-use kernel::{Result, pr_warn, ThisModule};
-use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
-use inode::InodeHashTable;
-use core::pin::Pin;
 use kernel::sync::SpinLock;
-use constant_table::ConstantTable;
-use fs_parameter::{FsParameterSpec, ExfatOptions};
+use kernel::{pr_warn, Result, ThisModule};
+use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
 
 struct ExFatRust;
 
@@ -180,8 +181,8 @@ const UTF8: &str = "utf8";
 extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_types::c_int {
     from_kernel_result! {
         // Do some things?
-        let mut sb = unsafe { *sb };
-        let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(&mut sb);
+        let sb = unsafe { &mut *sb };
+        let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
         let opts: &mut ExfatMountOptions = &mut exfat_sb_info.options;
 
         if opts.allow_utime == u16::MAX {
@@ -206,9 +207,9 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
         sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
         sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
 
-        read_exfat_partition(&mut sb)?;
+        read_exfat_partition(sb)?;
 
-        exfat_hash_init(&mut sb);
+        exfat_hash_init(sb);
 
         if opts.iocharset != UTF8 {
             opts.utf8 = true;
@@ -228,7 +229,10 @@ fn exfat_hash_init(sb: &mut super_block) {
     // SAFETY: TODO
     let mut inode_hash_table_lock = unsafe { SpinLock::new(inode_hash_table) };
     // SAFETY: TODO
-    kernel::spinlock_init!(unsafe { Pin::new_unchecked(&mut inode_hash_table_lock) }, "Exfat inode hashtable spinlock");
+    kernel::spinlock_init!(
+        unsafe { Pin::new_unchecked(&mut inode_hash_table_lock) },
+        "Exfat inode hashtable spinlock"
+    );
     sbi.inode_hashtable = Some(inode_hash_table_lock);
 }
 
