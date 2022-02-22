@@ -21,18 +21,17 @@ use fs_parameter::{ExfatOptions, FsParameterSpec};
 use inode::InodeHashTable;
 use kernel::bindings::{
     file_system_type as FileSystemType, fs_context, fs_context_operations as FsContextOps,
-    fs_param_deprecated, fs_parameter_spec, get_tree_bdev, hlist_head as HlistHead,
-    kill_block_super, lock_class_key as LockClassKey, register_filesystem,
-    request_queue as RequestQueue, super_block, super_operations as SuperOperations,
-    unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV, NSEC_PER_MSEC, QUEUE_FLAG_DISCARD,
-    SB_NODIRATIME,
+    fs_param_deprecated, get_tree_bdev, hlist_head as HlistHead, kill_block_super, lock_class_key as LockClassKey,
+    register_filesystem, request_queue as RequestQueue, super_block,
+    super_operations as SuperOperations, unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV,
+    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME, fs_parameter_spec, new_inode, inode as Inode, inode_set_iversion,
 };
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
-use kernel::sync::SpinLock;
-use kernel::{pr_warn, Result, ThisModule};
+use kernel::{Result, pr_warn, ThisModule, Error};
 use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
+use kernel::sync::SpinLock;
 
 struct ExFatRust;
 
@@ -45,7 +44,6 @@ static EXFAT_PARAM_ENUMS: &[ConstantTable] = &[
         name: ExfatErrorMode::Panic.get_name(),
         value: ExfatErrorMode::Panic as i32,
     },
-    // FIXME: vidde, borde inte detta vara Remount? Vi har Panic på raden över...
     ConstantTable {
         name: ExfatErrorMode::RemountRo.get_name(),
         value: ExfatErrorMode::RemountRo as i32,
@@ -177,6 +175,7 @@ const EXFAT_MIN_TIMESTAMP_SECS: i64 = 315532800;
 /* Dec 31 GMT 23:59:59 2107 */
 const EXFAT_MAX_TIMESTAMP_SECS: i64 = 4354819199;
 const UTF8: &str = "utf8";
+const EXFAT_ROOT_INO: u64 = 1;
 
 extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_types::c_int {
     from_kernel_result! {
@@ -218,6 +217,15 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
         }
 
         // TODO: Finished function
+        let root_inode: &mut Inode = unsafe { new_inode(sb).as_mut() }.ok_or_else(|| {
+            pr_err!("Failed to allocate root inode");
+            Error::ENOMEM
+        })?;
+
+        root_inode.i_ino = EXFAT_ROOT_INO;
+        // SAFETY: TODO
+        unsafe { inode_set_iversion(root_inode, 1); }
+        inode::read_root_inode(root_inode, sb, exfat_sb_info)?;
 
         Ok(())
     }
