@@ -30,6 +30,7 @@
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/security.h>
+#include <linux/iversion.h>
 #include <asm/io.h>
 #include <linux/irq.h>
 #include <linux/irqchip/chained_irq.h>
@@ -567,6 +568,7 @@ const struct of_device_id *rust_helper_of_match_device(
 }
 EXPORT_SYMBOL_GPL(rust_helper_of_match_device);
 
+<<<<<<< HEAD
 void rust_helper_init_completion(struct completion *c)
 {
 	init_completion(c);
@@ -614,6 +616,12 @@ unsigned int rust_helper_NF_QUEUE_NR(unsigned int n)
 	return NF_QUEUE_NR(n);
 }
 EXPORT_SYMBOL_GPL(rust_helper_NF_QUEUE_NR);
+
+void rust_helper_inode_set_iversion(struct inode *inode, u64 val)
+{
+	inode_set_iversion(inode, val);
+}
+EXPORT_SYMBOL_GPL(rust_helper_inode_set_iversion);
 
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type
