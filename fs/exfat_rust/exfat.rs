@@ -21,17 +21,18 @@ use fs_parameter::{ExfatOptions, FsParameterSpec};
 use inode::InodeHashTable;
 use kernel::bindings::{
     file_system_type as FileSystemType, fs_context, fs_context_operations as FsContextOps,
-    fs_param_deprecated, get_tree_bdev, hlist_head as HlistHead, kill_block_super, lock_class_key as LockClassKey,
+    fs_param_deprecated, fs_parameter_spec, get_tree_bdev, hlist_head as HlistHead, inode as Inode,
+    inode_set_iversion, kill_block_super, lock_class_key as LockClassKey, new_inode,
     register_filesystem, request_queue as RequestQueue, super_block,
     super_operations as SuperOperations, unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV,
-    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME, fs_parameter_spec, new_inode, inode as Inode, inode_set_iversion,
+    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME,
 };
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
-use kernel::{Result, pr_warn, ThisModule, Error};
-use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
 use kernel::sync::SpinLock;
+use kernel::{pr_warn, Error, Result, ThisModule};
+use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
 
 struct ExFatRust;
 
@@ -265,29 +266,7 @@ fn read_exfat_partition(sb: &mut super_block) -> Result {
     Ok(())
 }
 
-const EXFAT_RESERVED_CLUSTERS: u32 = 2;
-const BITS_PER_BYTE_MASK: u32 = 0x7;
 const BITS_PER_BYTE: usize = 8;
-
-const USED_BIT: [u8; 256] = [
-    0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, /*  0 ~  19*/
-    2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 1, 2, 2, 3, 2, 3, 3, 4, /* 20 ~  39*/
-    2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, /* 40 ~  59*/
-    4, 5, 5, 6, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, /* 60 ~  79*/
-    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 3, 3, 4, /* 80 ~  99*/
-    3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, /*100 ~ 119*/
-    4, 5, 5, 6, 5, 6, 6, 7, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, /*120 ~ 139*/
-    3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, /*140 ~ 159*/
-    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, /*160 ~ 179*/
-    4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 2, 3, 3, 4, 3, 4, 4, 5, /*180 ~ 199*/
-    3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, /*200 ~ 219*/
-    5, 6, 6, 7, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, /*220 ~ 239*/
-    4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8, /*240 ~ 255*/
-];
-
-const LAST_BIT_MASK: [u8; 8] = [
-    0, 0b00000001, 0b00000011, 0b00000111, 0b00001111, 0b00011111, 0b00111111, 0b01111111,
-];
 
 /// Initialize ExFat SuperBlockInfo and pass it to fs_context
 pub extern "C" fn init_fs_context(fc: *mut fs_context) -> c_int {

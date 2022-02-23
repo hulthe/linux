@@ -11,9 +11,10 @@ pub(crate) struct AllocationBitmap {
     // INVARIANT: the trailing bits in the last byte must be 0
     bitmap: Box<[u8]>,
 
-    allocation_count: usize,
+    allocation_count: u64,
 
-    cluster_count: usize,
+    #[allow(dead_code)] // TODO
+    cluster_count: u32,
 }
 
 impl AllocationBitmap {
@@ -21,6 +22,7 @@ impl AllocationBitmap {
     //    self.cluster_count as u64 - self.allocated_cluster_count()
     //}
 
+    #[allow(dead_code)] // TODO
     pub(crate) fn allocated_cluster_count(&self) -> u64 {
         self.allocation_count
     }
@@ -49,7 +51,7 @@ pub(crate) fn load_allocation_bitmap(sb: &mut SuperBlock) -> Result {
     }
 
     sbi.map_clu = bitmap_entry.first_cluster.to_native();
-    let cluster_count = sbi.boot_sector_info.cluster_count() as usize;
+    let cluster_count = sbi.boot_sector_info.cluster_count();
     let size = bitmap_entry.data_length.to_native();
     let required_size = ((cluster_count - 1) as u64 / BITS_PER_BYTE as u64) + 1;
 
@@ -77,18 +79,20 @@ pub(crate) fn load_allocation_bitmap(sb: &mut SuperBlock) -> Result {
     ClusterChain::new(sb, sbi.map_clu)?.read_exact(&mut bitmap)?;
 
     // make sure the trailing bits are 0
-    let trailing_bits = required_size as usize * BITS_PER_BYTE - cluster_count;
+    let trailing_bits = required_size * BITS_PER_BYTE as u64 - cluster_count as u64;
     let trailing_mask = u8::MAX << trailing_bits;
     bitmap[required_size as usize - 1] &= trailing_mask;
 
     let bitmap = bitmap.try_into_boxed_slice()?;
 
-    sbi.allocation_bitmap = Some(AllocationBitmap {
+    let mut bitmap = AllocationBitmap {
         bitmap,
         cluster_count,
         allocation_count: 0,
-    });
-    sbi.allocation_bitmap.count_allocations();
+    };
+    bitmap.count_allocations();
+
+    sbi.allocation_bitmap = Some(bitmap);
 
     Ok(())
 }
