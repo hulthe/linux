@@ -1,10 +1,10 @@
 #![allow(dead_code)] // TODO
 
-mod allocation_bitmap;
-mod file;
-mod file_name;
-mod stream_extension;
-mod upcase;
+pub(crate) mod allocation_bitmap;
+pub(crate) mod file;
+pub(crate) mod file_name;
+pub(crate) mod stream_extension;
+pub(crate) mod upcase;
 
 use crate::fat::ClusterIndex;
 use crate::heap::ClusterChain;
@@ -41,20 +41,20 @@ pub(crate) enum DirEntry {
     // Critical primary
     AllocationBitmap(AllocationBitmap),
     UpCaseTable(UpCaseTable),
-    VolumeLabel(ToDo),
+    VolumeLabel(ToDo), // TODO
     File(File),
 
     // Benign primary
-    VolumeGuid(ToDo),
-    TexFatPadding(ToDo),
+    VolumeGuid(ToDo),    // TODO
+    TexFatPadding(ToDo), // TODO
 
     // Critical secondary
     StreamExtension(StreamExtension),
     FileName(FileName),
 
     // Benign secondary
-    VendorExtension(ToDo),
-    VendorAllocation(ToDo),
+    VendorExtension(ToDo),  // TODO
+    VendorAllocation(ToDo), // TODO
 }
 
 pub(crate) struct DirEntryReader<'a> {
@@ -98,6 +98,7 @@ impl Iterator for DirEntryReader<'_> {
             ENTRY_TYPE_BITMAP => Some(Ok(DirEntry::AllocationBitmap(
                 AllocationBitmap::from_bytes(buf),
             ))),
+            ENTRY_TYPE_FILE => Some(Ok(DirEntry::File(File::from_bytes(buf)))),
             _ => self.next(), // TODO: remove this and implement remaining directory entries
         }
     }
