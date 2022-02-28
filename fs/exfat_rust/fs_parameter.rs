@@ -1,6 +1,6 @@
-use kernel::bindings::{fs_param_is_s32, fs_param_is_u32, fs_param_type };
+use core::ptr::null;
+use kernel::bindings::{fs_param_is_s32, fs_param_is_u32, fs_param_type};
 use kernel::c_types;
-use core::ptr::{null};
 
 /// Specification of the type of value a parameter wants.
 ///
@@ -120,7 +120,6 @@ impl FsParameterSpec {
         }
     }
 }
-
 
 #[repr(C)]
 pub(crate) enum ExfatOptions {
