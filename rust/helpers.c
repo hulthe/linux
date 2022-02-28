@@ -568,7 +568,6 @@ const struct of_device_id *rust_helper_of_match_device(
 }
 EXPORT_SYMBOL_GPL(rust_helper_of_match_device);
 
-<<<<<<< HEAD
 void rust_helper_init_completion(struct completion *c)
 {
 	init_completion(c);
@@ -622,6 +621,24 @@ void rust_helper_inode_set_iversion(struct inode *inode, u64 val)
 	inode_set_iversion(inode, val);
 }
 EXPORT_SYMBOL_GPL(rust_helper_inode_set_iversion);
+
+void rust_helper_i_size_write(struct inode *inode, loff_t i_size)
+{
+	i_size_write(inode, i_size);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i_size_write);
+
+loff_t rust_helper_i_size_read(const struct inode *inode)
+{
+	return i_size_read(inode);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i_size_read);
+
+void rust_helper_inode_inc_iversion(struct inode *inode)
+{
+	inode_inc_iversion(inode);
+}
+EXPORT_SYMBOL_GPL(rust_helper_inode_inc_iversion);
 
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type

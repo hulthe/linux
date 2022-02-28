@@ -1,4 +1,6 @@
+use crate::superblock::SuperBlockInfo;
 use core::mem::{size_of, transmute};
+use kernel::bindings::{S_IFDIR, S_IFREG};
 use kernel::endian::u16le;
 
 // TODO: expand on this type
@@ -41,6 +43,10 @@ impl File {
 }
 
 impl FileAttributes {
+    pub(crate) fn from_u16(num: u16) -> Self {
+        FileAttributes { bits: num.into() }
+    }
+
     pub(crate) fn read_only(&self) -> bool {
         bit::<0>(self.bits.to_native())
     }
@@ -60,7 +66,23 @@ impl FileAttributes {
     pub(crate) fn archive(&self) -> bool {
         bit::<5>(self.bits.to_native())
     }
+
+    // Convert exFAT file attributes to the UNIX mode
+    pub(crate) fn to_unix(&self, mut mode: u16, sb_info: &SuperBlockInfo) -> u16 {
+        if self.directory() {
+            return (mode & !sb_info.options.fs_dmask) | (S_IFDIR as u16);
+        }
+
+        if self.read_only() {
+            mode &= !0o222;
+        }
+
+        (mode & !sb_info.options.fs_fmask) | (S_IFREG as u16)
+    }
 }
+
+// Directory
+pub(crate) const ROOT_FILE_ATTRIBUTE: u16 = 0x0010;
 
 /// Read a single bit of an integer
 #[inline]
