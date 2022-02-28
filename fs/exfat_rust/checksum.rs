@@ -27,7 +27,9 @@ pub(crate) fn calc_checksum_32(data: &[u8], mut checksum: u32, checksum_type: Ch
     if checksum_type == ChecksumType::BootSector {
         // Skip volume flags & percent in use fields for checksum calculation
         // (indicies 106, 107 and 112)
-        data.iter().copied().enumerate()
+        data.iter()
+            .copied()
+            .enumerate()
             .filter(|(index, _)| [106, 107, 112].contains(index))
             .map(|(_, b)| b)
             .for_each(calc);

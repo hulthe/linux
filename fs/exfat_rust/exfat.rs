@@ -10,7 +10,9 @@ mod fat;
 mod fs_parameter;
 mod heap;
 mod inode;
+mod inode_dir_operations;
 mod macros;
+mod math;
 mod superblock;
 mod upcase;
 
@@ -139,6 +141,7 @@ static mut CONTEXT_OPS: FsContextOps = FsContextOps {
 };
 
 extern "C" fn exfat_get_tree(fc: *mut fs_context) -> c_types::c_int {
+    // SAFETY: TODO
     return unsafe { get_tree_bdev(fc, Some(exfat_fill_super)) };
 }
 
@@ -183,6 +186,7 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
     from_kernel_result! {
         pr_info!("exfat_fill_super enter");
         // Do some things?
+        // SAFETY: TODO
         let sb = unsafe { &mut *sb };
         let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
         let opts: &mut ExfatMountOptions = &mut exfat_sb_info.options;
@@ -203,6 +207,7 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
 
         sb.s_flags |= SB_NODIRATIME as u64;
         sb.s_magic = EXFAT_SUPER_MAGIC as u64;
+        // SAFETY: TODO
         sb.s_op = unsafe { &EXFAT_SOPS as *const _ };
 
         sb.s_time_gran = 10 * NSEC_PER_MSEC;
@@ -219,7 +224,8 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
             // TODO: charset stuff!??!?!
         }
 
-        // TODO: Finished function
+
+        // SAFETY: TODO
         let root_inode: &mut Inode = unsafe { new_inode(sb).as_mut() }.ok_or_else(|| {
             pr_err!("Failed to allocate root inode");
             Error::ENOMEM
@@ -229,6 +235,8 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
         // SAFETY: TODO
         unsafe { inode_set_iversion(root_inode, 1); }
         inode::read_root_inode(root_inode, sb, exfat_sb_info)?;
+
+        // TODO: Finish function
 
         pr_info!("exfat_fill_super exit");
         Ok(())
@@ -249,7 +257,7 @@ fn exfat_hash_init(sb: &mut super_block) {
 }
 
 fn read_exfat_partition(sb: &mut super_block) -> Result {
-    // TODO: Fill in code from __exfat_fill_super.
+    // TODO: Add logging on returns
 
     // 1. exfat_read_boot_sector
     boot_sector::read_boot_sector(sb)?;
@@ -277,10 +285,11 @@ pub extern "C" fn init_fs_context(fc: *mut fs_context) -> c_int {
         // TODO: might overflow the stack
         let sbi = Box::try_new(SuperBlockInfo::default())?;
 
+        // SAFETY: TODO
         let fc = unsafe { &mut *fc };
         fc.s_fs_info = Box::into_raw(sbi) as *mut c_void;
 
-
+        // SAFETY: TODO
         fc.ops = unsafe { &CONTEXT_OPS as *const _ };
 
 
@@ -305,10 +314,12 @@ impl KernelModule for ExFatRust {
     fn init(_name: &'static CStr, module: &'static ThisModule) -> Result<Self> {
         pr_info!("### Rust ExFat ### init\n");
 
+        // SAFETY: TODO
         unsafe {
             FS_TYPE.owner = module.0;
         }
 
+        // SAFETY: TODO
         let err = unsafe { register_filesystem(&mut FS_TYPE as *mut _) };
 
         if err != 0 {
@@ -325,6 +336,7 @@ impl Drop for ExFatRust {
     fn drop(&mut self) {
         pr_info!("### Rust ExFat ### exit\n");
 
+        // SAFETY: TODO
         let err = unsafe { unregister_filesystem(&mut FS_TYPE as *mut _) };
         if err != 0 {
             pr_info!(

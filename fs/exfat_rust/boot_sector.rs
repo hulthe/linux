@@ -1,11 +1,11 @@
-use kernel::bindings::{sb_min_blocksize, super_block};
-use crate::{get_exfat_sb_from_sb};
-use crate::superblock::{BootSectorInfo, SuperBlockInfo};
-use kernel::{Result, Error, pr_err, pr_warn};
-use kernel::endian::{u16le, u32le, u64le};
-use crate::external::{BufferHead};
 use crate::checksum::{calc_checksum_32, ChecksumType};
+use crate::external::BufferHead;
+use crate::get_exfat_sb_from_sb;
+use crate::superblock::{BootSectorInfo, SuperBlockInfo};
 use core::mem::size_of;
+use kernel::bindings::{sb_min_blocksize, super_block};
+use kernel::endian::{u16le, u32le, u64le};
+use kernel::{pr_err, pr_warn, Error, Result};
 
 const JUMP_BOOT_VALUE: [u8; 3] = [0xEB, 0x76, 0x90];
 const FILESYSTEM_NAME: &[u8] = b"EXFAT   ";
@@ -65,8 +65,7 @@ pub(crate) fn read_boot_sector(sb: &mut super_block) -> Result<&mut SuperBlockIn
     unsafe { sb_min_blocksize(sb, 512) };
 
     // The boot sector should be the first on the disk, read sector 0.
-    let bh =  BufferHead::block_read(sb, 0)
-    .ok_or_else(|| {
+    let bh = BufferHead::block_read(sb, 0).ok_or_else(|| {
         pr_err!("unable to read boot sector");
         Error::EIO
     })?;
@@ -96,14 +95,21 @@ pub(crate) fn read_boot_sector(sb: &mut super_block) -> Result<&mut SuperBlockIn
         return Err(Error::EINVAL);
     }
 
-    if boot_region.bytes_per_sector_shift < MIN_BYTES_PER_SECTOR_SHIFT ||
-       boot_region.bytes_per_sector_shift > MAX_BYTES_PER_SECTOR_SHIFT {
-        pr_err!("bogus sector size bits {}", boot_region.bytes_per_sector_shift);
+    if boot_region.bytes_per_sector_shift < MIN_BYTES_PER_SECTOR_SHIFT
+        || boot_region.bytes_per_sector_shift > MAX_BYTES_PER_SECTOR_SHIFT
+    {
+        pr_err!(
+            "bogus sector size bits {}",
+            boot_region.bytes_per_sector_shift
+        );
         return Err(Error::EINVAL);
     }
 
     if boot_region.sectors_per_cluster_shift > 25 - boot_region.bytes_per_sector_shift {
-        pr_err!("bogus sectors per cluster : {}", boot_region.sectors_per_cluster_shift);
+        pr_err!(
+            "bogus sectors per cluster : {}",
+            boot_region.sectors_per_cluster_shift
+        );
         return Err(Error::EINVAL);
     }
 
@@ -112,7 +118,8 @@ pub(crate) fn read_boot_sector(sb: &mut super_block) -> Result<&mut SuperBlockIn
         return Err(Error::EINVAL);
     }
 
-    let cluster_size_bits: u32 = (boot_region.sectors_per_cluster_shift + boot_region.bytes_per_sector_shift) as u32;
+    let cluster_size_bits: u32 =
+        (boot_region.sectors_per_cluster_shift + boot_region.bytes_per_sector_shift) as u32;
     let boot_sector_info = BootSectorInfo {
         num_sectors: boot_region.volume_length.to_native(),
         num_clusters: boot_region.cluster_count.to_native() + EXFAT_RESERVED_CLUSTERS,
@@ -121,31 +128,40 @@ pub(crate) fn read_boot_sector(sb: &mut super_block) -> Result<&mut SuperBlockIn
         sect_per_clus: (1 << boot_region.sectors_per_cluster_shift as u32),
         sect_per_clus_bits: boot_region.sectors_per_cluster_shift.into(),
         fat1_start_sector: boot_region.fat_offset.to_native().into(),
-        fat2_start_sector: if boot_region.number_of_fats == 1 { None }
-                           else { Some((boot_region.fat_offset.to_native() + boot_region.fat_length.to_native()).into()) },
+        fat2_start_sector: if boot_region.number_of_fats == 1 {
+            None
+        } else {
+            Some((boot_region.fat_offset.to_native() + boot_region.fat_length.to_native()).into())
+        },
         data_start_sector: boot_region.cluster_heap_offset.to_native().into(),
         num_fat_sectors: boot_region.fat_length.to_native(),
         root_dir: boot_region.first_cluster_of_root_directory.to_native(),
         dentries_per_clu: 1 << (cluster_size_bits - DENTRY_SHIFT),
         vol_flags: boot_region.volume_flags.to_native().into(),
-        vol_flags_persistent: (boot_region.volume_flags.to_native() & (VOLUME_DIRTY_FLAG | MEDIA_FAILURE_FLAG)).into(),
+        vol_flags_persistent: (boot_region.volume_flags.to_native()
+            & (VOLUME_DIRTY_FLAG | MEDIA_FAILURE_FLAG))
+            .into(),
         clu_srch_ptr: EXFAT_FIRST_CLUSTER,
         used_clusters: EXFAT_CLUSTERS_UNTRACKED,
     };
 
     // Check consistencies
-    if boot_sector_info.num_fat_sectors << boot_region.bytes_per_sector_shift <
-        boot_sector_info.num_clusters * 4 {
+    if boot_sector_info.num_fat_sectors << boot_region.bytes_per_sector_shift
+        < boot_sector_info.num_clusters * 4
+    {
         pr_err!("bogus fat length");
         return Err(Error::EINVAL);
     }
 
-    if boot_sector_info.data_start_sector <
-        boot_sector_info.fat1_start_sector +
-            (boot_sector_info.num_fat_sectors * boot_region.number_of_fats as u32) as u64 {
+    if boot_sector_info.data_start_sector
+        < boot_sector_info.fat1_start_sector
+            + (boot_sector_info.num_fat_sectors * boot_region.number_of_fats as u32) as u64
+    {
         pr_err!("bogus data start sector");
         return Err(Error::EINVAL);
     }
+
+    // TODO: Finish function I guess?
 
     sbi.boot_sector_info = boot_sector_info;
     Ok(sbi)
@@ -168,7 +184,7 @@ pub(crate) fn verify_boot_region(sb: &mut super_block) -> Result {
             let signature = u32::from_le_bytes(
                 sector_data[blocksize - 4..blocksize]
                     .try_into()
-                    .or_else(|_| Err(Error::EIO))?
+                    .or_else(|_| Err(Error::EIO))?,
             );
 
             if signature != EXBOOT_SIGNATURE {
@@ -176,9 +192,15 @@ pub(crate) fn verify_boot_region(sb: &mut super_block) -> Result {
             }
         }
 
-        checksum = calc_checksum_32(sector_data, checksum,
-                                        if sn == 0 { ChecksumType::BootSector }
-                                        else       { ChecksumType::Default });
+        checksum = calc_checksum_32(
+            sector_data,
+            checksum,
+            if sn == 0 {
+                ChecksumType::BootSector
+            } else {
+                ChecksumType::Default
+            },
+        );
     }
 
     // Boot checksum sub-regions
@@ -189,13 +211,17 @@ pub(crate) fn verify_boot_region(sb: &mut super_block) -> Result {
         let i = i as usize;
         // Assumes that sector_data is i + 4 long.
         let checksum_on_disk = u32::from_le_bytes(
-            sector_data[i..i+4]
+            sector_data[i..i + 4]
                 .try_into()
-                .or_else(|_| Err(Error::EIO))?
+                .or_else(|_| Err(Error::EIO))?,
         );
 
         if checksum_on_disk != checksum {
-            pr_err!("Invalid boot checksum (on disk: {}, calculated: {})", checksum_on_disk, checksum);
+            pr_err!(
+                "Invalid boot checksum (on disk: {}, calculated: {})",
+                checksum_on_disk,
+                checksum
+            );
             return Err(Error::EINVAL);
         }
     }
