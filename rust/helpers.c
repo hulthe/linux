@@ -512,6 +512,22 @@ void rust_helper_inode_set_iversion(struct inode *inode, u64 val) {
 }
 EXPORT_SYMBOL_GPL(rust_helper_inode_set_iversion);
 
+void rust_helper_i_size_write(struct inode *inode, loff_t i_size) {
+	i_size_write(inode, i_size);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i_size_write);
+
+loff_t rust_helper_i_size_read(const struct inode *inode) {
+	return i_size_read(inode);
+}
+EXPORT_SYMBOL_GPL(rust_helper_i_size_read);
+
+void rust_helper_inode_inc_iversion(struct inode *inode) {
+	inode_inc_iversion(inode);
+}
+EXPORT_SYMBOL_GPL(rust_helper_inode_inc_iversion);
+
+
 /* We use bindgen's --size_t-is-usize option to bind the C size_t type
  * as the Rust usize type, so we can use it in contexts where Rust
  * expects a usize like slice (array) indices. usize is defined to be

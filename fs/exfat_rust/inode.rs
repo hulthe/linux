@@ -1,7 +1,12 @@
-use alloc::vec::Vec;
-use kernel::{Result};
-use crate::superblock::{SuperBlock, SuperBlockInfo};
+use crate::directory::file::{FileAttributes, ROOT_FILE_ATTRIBUTE};
+use crate::directory::{DirEntry, DirEntryReader};
 use crate::fat::FatChainReader;
+use crate::inode_dir_operations::DIR_INODE_OPERATIONS;
+use crate::math;
+use crate::superblock::{SuperBlock, SuperBlockInfo};
+use alloc::vec::Vec;
+use kernel::bindings::{current_time, i_size_read, i_size_write, inode_inc_iversion, set_nlink};
+use kernel::Result;
 
 pub(crate) type Inode = kernel::bindings::inode;
 
@@ -10,14 +15,14 @@ const EXFAT_HASH_SIZE: usize = 1 << EXFAT_HASH_BITS;
 
 #[allow(dead_code)]
 pub(crate) struct InodeHashTable {
-    inner: [Vec<Inode>; EXFAT_HASH_SIZE]
+    inner: [Vec<Inode>; EXFAT_HASH_SIZE],
 }
 
 impl InodeHashTable {
     pub(crate) fn new() -> Self {
         const EMPTY: Vec<Inode> = Vec::new();
         Self {
-            inner: [EMPTY; EXFAT_HASH_SIZE]
+            inner: [EMPTY; EXFAT_HASH_SIZE],
         }
     }
 }
@@ -80,25 +85,91 @@ pub(crate) trait InodeExt {
 impl InodeExt for Inode {
     fn to_info(&self) -> &InodeInfo {
         let inode_info = self as *const _ as *const InodeInfo;
+        // SAFETY: TODO
         unsafe { &*inode_info }
     }
 
     fn to_info_mut(&mut self) -> &mut InodeInfo {
         let inode_info = self as *mut _ as *mut InodeInfo;
+        // SAFETY: TODO
         unsafe { &mut *inode_info }
     }
 }
 
-pub(crate) fn read_root_inode(inode: &mut Inode, super_block: &mut SuperBlock, exfat_sb_info: &mut SuperBlockInfo) -> Result {
-    let info: &mut InodeInfo = inode.to_info_mut();
+// Representing `.` and `..`?
+const EXFAT_MIN_SUBDIR: u32 = 2;
+
+// C name `exfat_read_root`
+pub(crate) fn read_root_inode(
+    inode: &mut Inode,
+    super_block: &mut SuperBlock,
+    exfat_sb_info: &mut SuperBlockInfo,
+) -> Result {
+    // TODO: We probably want to use this for something :shrug:
+    let _info: &mut InodeInfo = inode.to_info_mut();
 
     let root_dir = exfat_sb_info.boot_sector_info.root_dir;
     let chain_reader = FatChainReader::new(super_block, root_dir);
-    let num_clusters = chain_reader.fold(Ok(0), |bucket: Result<usize>, item| {
+
+    fn count_oks<T>(bucket: Result<u32>, item: Result<T>) -> Result<u32> {
         let _ = item?;
         Ok(bucket? + 1)
-    })?;
+    }
 
-    // TODO: Finish function
+    let num_clusters = chain_reader.fold(Ok(0), count_oks)?;
+
+    let clusters_size = (num_clusters << exfat_sb_info.boot_sector_info.cluster_size_bits) as i64;
+    // SAFETY: TODO
+    unsafe {
+        i_size_write(inode, clusters_size);
+    }
+
+    let dir_reader = DirEntryReader::new(super_block, root_dir)?;
+    let num_subdirs = dir_reader
+        .filter_map(|dir_entry| match dir_entry {
+            Err(e) => Some(Err(e)),
+            Ok(DirEntry::File(file)) => {
+                if file.file_attributes.directory() {
+                    Some(Ok(()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })
+        .fold(Ok(0), count_oks)? as u32;
+
+    // SAFETY: TODO
+    unsafe {
+        set_nlink(inode, num_subdirs + EXFAT_MIN_SUBDIR);
+    }
+
+    inode.i_uid = exfat_sb_info.options.fs_uid;
+    inode.i_gid = exfat_sb_info.options.fs_gid;
+
+    // SAFETY: TODO
+    unsafe {
+        inode_inc_iversion(inode);
+    }
+
+    inode.i_generation = 0;
+    inode.i_mode = FileAttributes::from_u16(ROOT_FILE_ATTRIBUTE).to_unix(0o777, exfat_sb_info);
+    inode.i_op = &DIR_INODE_OPERATIONS;
+    // TODO(Tux): inode->i_fop = &exfat_dir_operations;
+
+    // SAFETY: TODO
+    let size = unsafe { i_size_read(inode) };
+    inode.i_blocks = math::round_up_to_next_multiple(
+        size as u64,
+        exfat_sb_info.boot_sector_info.cluster_size as u64,
+    ) >> inode.i_blkbits;
+
+    // SAFETY: TODO
+    let curr_time = unsafe { current_time(inode) };
+    inode.i_mtime = curr_time;
+    inode.i_atime = curr_time;
+    inode.i_ctime = curr_time;
+    math::truncate_atime(&mut inode.i_atime);
+
     Ok(())
 }
