@@ -184,63 +184,71 @@ const EXFAT_ROOT_INO: u64 = 1;
 
 extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_types::c_int {
     from_kernel_result! {
-        pr_info!("exfat_fill_super enter");
-        // Do some things?
         // SAFETY: TODO
         let sb = unsafe { &mut *sb };
-        let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
-        let opts: &mut ExfatMountOptions = &mut exfat_sb_info.options;
 
-        if opts.allow_utime == u16::MAX {
-            opts.allow_utime = !opts.fs_dmask & 0022;
-        }
-
-        if opts.discard {
-            let queue: &mut RequestQueue = bdev_get_queue!(&mut sb.s_bdev);
-
-            if (queue.queue_flags >> QUEUE_FLAG_DISCARD) & 1 == 0 {
-                // The DISCARD flag is not set for the device
-                pr_warn!("mounting with \"discard\" option, but the device does not support discard");
-                opts.discard = false;
-            }
-        }
-
-        sb.s_flags |= SB_NODIRATIME as u64;
-        sb.s_magic = EXFAT_SUPER_MAGIC as u64;
-        // SAFETY: TODO
-        sb.s_op = unsafe { &EXFAT_SOPS as *const _ };
-
-        sb.s_time_gran = 10 * NSEC_PER_MSEC;
-        sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
-        sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
-
-        read_exfat_partition(sb)?;
-
-        exfat_hash_init(sb);
-
-        if opts.iocharset != UTF8 {
-            opts.utf8 = true;
-        } else {
-            // TODO: charset stuff!??!?!
-        }
-
-
-        // SAFETY: TODO
-        let root_inode: &mut Inode = unsafe { new_inode(sb).as_mut() }.ok_or_else(|| {
-            pr_err!("Failed to allocate root inode");
-            Error::ENOMEM
-        })?;
-
-        root_inode.i_ino = EXFAT_ROOT_INO;
-        // SAFETY: TODO
-        unsafe { inode_set_iversion(root_inode, 1); }
-        inode::read_root_inode(root_inode, sb, exfat_sb_info)?;
-
-        // TODO: Finish function
-
-        pr_info!("exfat_fill_super exit");
+        fill_super(sb)?;
         Ok(())
     }
+}
+
+fn fill_super(sb: &mut super_block) -> Result {
+    pr_info!("exfat_fill_super enter");
+    // Do some things?
+    let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
+    let opts: &mut ExfatMountOptions = &mut exfat_sb_info.options;
+
+    if opts.allow_utime == u16::MAX {
+        opts.allow_utime = !opts.fs_dmask & 0022;
+    }
+
+    if opts.discard {
+        let queue: &mut RequestQueue = bdev_get_queue!(&mut sb.s_bdev);
+
+        if (queue.queue_flags >> QUEUE_FLAG_DISCARD) & 1 == 0 {
+            // The DISCARD flag is not set for the device
+            pr_warn!("mounting with \"discard\" option, but the device does not support discard");
+            opts.discard = false;
+        }
+    }
+
+    sb.s_flags |= SB_NODIRATIME as u64;
+    sb.s_magic = EXFAT_SUPER_MAGIC as u64;
+    // SAFETY: TODO
+    sb.s_op = unsafe { &EXFAT_SOPS as *const _ };
+
+    sb.s_time_gran = 10 * NSEC_PER_MSEC;
+    sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
+    sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
+    read_exfat_partition(sb)?;
+
+    return Ok(());
+
+    exfat_hash_init(sb);
+
+    if opts.iocharset != UTF8 {
+        opts.utf8 = true;
+    } else {
+        // TODO: charset stuff!??!?!
+    }
+
+    // SAFETY: TODO
+    let root_inode: &mut Inode = unsafe { new_inode(sb).as_mut() }.ok_or_else(|| {
+        pr_err!("Failed to allocate root inode");
+        Error::ENOMEM
+    })?;
+
+    root_inode.i_ino = EXFAT_ROOT_INO;
+    // SAFETY: TODO
+    unsafe {
+        inode_set_iversion(root_inode, 1);
+    }
+    inode::read_root_inode(root_inode, sb, exfat_sb_info)?;
+
+    // TODO: Finish function
+
+    pr_info!("exfat_fill_super exit");
+    Ok(())
 }
 
 fn exfat_hash_init(sb: &mut super_block) {
