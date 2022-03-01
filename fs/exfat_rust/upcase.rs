@@ -1,4 +1,4 @@
-use crate::checksum::{calc_checksum_16, ChecksumType};
+use crate::checksum::{calc_checksum_32, ChecksumType};
 use crate::directory::{DirEntry, DirEntryReader};
 use crate::external::BufferHead;
 use crate::get_exfat_sb_from_sb;
@@ -6,7 +6,7 @@ use crate::heap::cluster_to_sector;
 use crate::superblock::SuperBlockInfo;
 use kernel::bindings::{sector_t, super_block};
 use kernel::prelude::*;
-use kernel::{Error, Result};
+use kernel::{pr_err, pr_info, Error, Result};
 
 //const NUM_UPCASE: usize = 2918;
 const UTBL_COUNT: usize = 0x10000;
@@ -31,18 +31,24 @@ pub(crate) fn create_upcase_table(sb: &mut super_block) -> Result {
 
             match load_upcase_table(sb, sector, num_sectors, table.table_checksum.to_native()) {
                 e @ Err(Error::EIO) => return e,
-                Err(_) => {
-                    // TODO: load default table
-                    todo!("load default table")
+                Err(err) => {
+                    pr_info!("Failed to load upcase table, err: {:?}", err);
+                    load_default_upcase_table(sb, sbi)?;
                 }
-                Ok(()) => Ok(()),
+                Ok(()) => {}
             }
         }
         None => {
-            // TODO: load default table
-            todo!("load default table")
+            load_default_upcase_table(sb, sbi)?;
         }
     }
+
+    Ok(())
+}
+
+fn load_default_upcase_table(sb: &mut super_block, sbi: &mut SuperBlockInfo) -> Result {
+    // TODO:
+    todo!("Implement function");
 }
 
 #[allow(dead_code)] // TODO
@@ -53,9 +59,9 @@ fn load_upcase_table(
     utbl_checksum: u32,
 ) -> Result {
     // TODO: we might want to rewrite this to use ClusterChain
-
     let sbi: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
     let sector_size = sb.s_blocksize as usize;
+    pr_info!("SECTOR SIZE: {}", sector_size);
 
     // unclear what type the UTF16 string should be
     // TODO: this might overflow the stack...
@@ -68,7 +74,7 @@ fn load_upcase_table(
 
     while sector < num_sectors {
         let bh = BufferHead::block_read(sb, sector).ok_or_else(|| {
-            // TODO: log err: failed to read sector
+            pr_err!("Failed to read sector");
             Error::EIO
         })?;
 
@@ -94,12 +100,12 @@ fn load_upcase_table(
                 // this entry tells us how many code points we should skip
                 unicode_index += entry as usize;
                 read_skip = false;
-            } else if entry == 0xffff {
-                // the next entry will be a compressed range of identity mappings.
-                read_skip = true;
             } else if entry as usize == unicode_index {
                 // this entry is an identity mapping, we can skip it
                 unicode_index += 1;
+            } else if entry == 0xffff {
+                // the next entry will be a compressed range of identity mappings.
+                read_skip = true;
             } else {
                 // this entry is an actual upcase mapping, add it to the table
                 upcase_table[unicode_index] = entry;
@@ -107,14 +113,14 @@ fn load_upcase_table(
             }
         }
 
-        checksum = calc_checksum_16(&b_data[..last_index], checksum, ChecksumType::Default);
+        checksum = calc_checksum_32(&b_data[..last_index], checksum, ChecksumType::Default);
     }
 
     if unicode_index >= 0xffff && utbl_checksum == checksum as u32 {
         sbi.vol_utbl = Some(upcase_table);
         Ok(())
     } else {
-        // TODO: log error: failed to load upcase table ...
+        pr_err!("Failed to load upcase table");
         Err(Error::EINVAL)
     }
 }
