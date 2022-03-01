@@ -7,6 +7,7 @@ mod constant_table;
 mod directory;
 mod external;
 mod fat;
+//mod file_ops;
 mod fs_parameter;
 mod heap;
 mod inode;
@@ -32,9 +33,9 @@ use kernel::bindings::{
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
-use kernel::sync::SpinLock;
+use kernel::sync::{Mutex, SpinLock};
 use kernel::{pr_warn, Error, Result, ThisModule};
-use superblock::{ExfatErrorMode, ExfatMountOptions, SuperBlockInfo};
+use superblock::{ExfatErrorMode, ExfatMountOptions, SbState, SuperBlock, SuperBlockInfo};
 
 struct ExFatRust;
 
@@ -192,12 +193,11 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
     }
 }
 
-fn fill_super(sb: &mut super_block) -> Result {
+fn fill_super(sb: &mut SuperBlock) -> Result {
     pr_info!("exfat_fill_super enter");
-    // Do some things?
-    let exfat_sb_info: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
-    let opts: &mut ExfatMountOptions = &mut exfat_sb_info.options;
+    let exfat_sb_info = get_exfat_sb_from_sb!(sb);
 
+    let opts: &mut ExfatMountOptions = &mut exfat_sb_info.info.options;
     if opts.allow_utime == u16::MAX {
         opts.allow_utime = !opts.fs_dmask & 0022;
     }
@@ -214,26 +214,29 @@ fn fill_super(sb: &mut super_block) -> Result {
 
     sb.s_flags |= SB_NODIRATIME as u64;
     sb.s_magic = EXFAT_SUPER_MAGIC as u64;
-    // SAFETY: TODO
     sb.s_op = unsafe { &EXFAT_SOPS as *const _ };
 
     sb.s_time_gran = 10 * NSEC_PER_MSEC;
     sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
     sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
-    read_exfat_partition(sb)?;
 
-    return Ok(());
+    let sb_state = unsafe { Mutex::new(SbState { sb }) };
+    exfat_sb_info.state = Some(sb_state);
 
-    exfat_hash_init(sb);
+    read_exfat_partition(exfat_sb_info)?;
 
+    exfat_hash_init(exfat_sb_info);
+
+    let opts: &mut ExfatMountOptions = &mut exfat_sb_info.info.options;
     if opts.iocharset != UTF8 {
         opts.utf8 = true;
     } else {
         // TODO: charset stuff!??!?!
     }
 
-    // SAFETY: TODO
-    let root_inode: &mut Inode = unsafe { new_inode(sb).as_mut() }.ok_or_else(|| {
+    // TODO: Finished function
+    let sb = &mut exfat_sb_info.state.as_mut().unwrap().get_mut().sb;
+    let root_inode: &mut Inode = unsafe { new_inode(*sb).as_mut() }.ok_or_else(|| {
         pr_err!("Failed to allocate root inode");
         Error::ENOMEM
     })?;
@@ -243,16 +246,12 @@ fn fill_super(sb: &mut super_block) -> Result {
     unsafe {
         inode_set_iversion(root_inode, 1);
     }
-    inode::read_root_inode(root_inode, sb, exfat_sb_info)?;
+    inode::read_root_inode(root_inode, exfat_sb_info)?;
 
-    // TODO: Finish function
-
-    pr_info!("exfat_fill_super exit");
     Ok(())
 }
 
-fn exfat_hash_init(sb: &mut super_block) {
-    let sbi: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
+fn exfat_hash_init(sbi: &mut SuperBlockInfo<'_>) {
     let inode_hash_table: InodeHashTable = InodeHashTable::new();
     // SAFETY: TODO
     let mut inode_hash_table_lock = unsafe { SpinLock::new(inode_hash_table) };
@@ -264,20 +263,20 @@ fn exfat_hash_init(sb: &mut super_block) {
     sbi.inode_hashtable = Some(inode_hash_table_lock);
 }
 
-fn read_exfat_partition(sb: &mut super_block) -> Result {
+fn read_exfat_partition(sbi: &mut SuperBlockInfo<'_>) -> Result {
     // TODO: Add logging on returns
 
     // 1. exfat_read_boot_sector
-    boot_sector::read_boot_sector(sb)?;
+    boot_sector::read_boot_sector(sbi)?;
 
     // 2. exfat_verify_boot_region
-    boot_sector::verify_boot_region(sb)?;
+    boot_sector::verify_boot_region(sbi)?;
 
     // 3. exfat_create_upcase_table
-    upcase::create_upcase_table(sb)?;
+    upcase::create_upcase_table(sbi)?;
 
     // 4. exfat_load_bitmap
-    allocation_bitmap::load_allocation_bitmap(sb)?;
+    allocation_bitmap::load_allocation_bitmap(sbi)?;
 
     Ok(())
 }

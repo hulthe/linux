@@ -1,9 +1,8 @@
 use crate::checksum::{calc_checksum_32, ChecksumType};
 use crate::external::BufferHead;
-use crate::get_exfat_sb_from_sb;
 use crate::superblock::{BootSectorInfo, SuperBlockInfo};
 use core::mem::size_of;
-use kernel::bindings::{sb_min_blocksize, super_block};
+use kernel::bindings::sb_min_blocksize;
 use kernel::endian::{u16le, u32le, u64le};
 use kernel::{pr_err, pr_warn, Error, Result};
 
@@ -56,13 +55,14 @@ pub(crate) struct BootRegion {
     boot_signature: u16le,
 }
 
-pub(crate) fn read_boot_sector(sb: &mut super_block) -> Result<&mut SuperBlockInfo> {
-    let sbi: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
+pub(crate) fn read_boot_sector(sbi: &mut SuperBlockInfo<'_>) -> Result<()> {
+    let sb_info = &mut sbi.info;
+    let sb = &mut sbi.state.as_mut().unwrap().get_mut().sb;
 
     // TODO: We probably want to reimplement this function in Rust later on
     // Set block size to read super block
     // SAFETY: Lol errrrrh... It's C, what do you expect?
-    unsafe { sb_min_blocksize(sb, 512) };
+    unsafe { sb_min_blocksize(*sb, 512) };
 
     // The boot sector should be the first on the disk, read sector 0.
     let bh = BufferHead::block_read(sb, 0).ok_or_else(|| {
@@ -171,11 +171,12 @@ pub(crate) fn read_boot_sector(sb: &mut super_block) -> Result<&mut SuperBlockIn
     sb.s_maxbytes = ((boot_sector_info.num_clusters - EXFAT_RESERVED_CLUSTERS)
         << boot_sector_info.cluster_size_bits) as i64;
 
-    sbi.boot_sector_info = boot_sector_info;
-    Ok(sbi)
+    sb_info.boot_sector_info = boot_sector_info;
+    Ok(())
 }
 
-pub(crate) fn verify_boot_region(sb: &mut super_block) -> Result {
+pub(crate) fn verify_boot_region(sbi: &mut SuperBlockInfo<'_>) -> Result {
+    let sb = &mut sbi.state.as_mut().unwrap().get_mut().sb;
     let mut checksum: u32 = 0;
 
     // Read boot sector sub-regions

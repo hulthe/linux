@@ -1,9 +1,9 @@
 use crate::directory::file::{FileAttributes, ROOT_FILE_ATTRIBUTE};
-use crate::directory::{DirEntry, DirEntryReader};
+use crate::directory::{ExfatDirEntry, ExfatDirEntryReader};
 use crate::fat::FatChainReader;
 use crate::inode_dir_operations::DIR_INODE_OPERATIONS;
 use crate::math;
-use crate::superblock::{SuperBlock, SuperBlockInfo};
+use crate::superblock::SuperBlockInfo;
 use alloc::vec::Vec;
 use kernel::bindings::{current_time, i_size_read, i_size_write, inode_inc_iversion, set_nlink};
 use kernel::Result;
@@ -33,12 +33,12 @@ pub(crate) struct InodeInfo {
     // otherwise hell will break lose and the angry angry
     // memory gods will forever be your nemesis.
     // DO NOT TOUCH!!!!!!!! (:cry:)!!!!!!!
-    vfs_inode: Inode,
+    pub(crate) vfs_inode: Inode,
     // struct exfat_chain dir;
-    entry: u32,
+    pub(crate) entry: u32,
+    pub(crate) start_cluster: u32,
     // unsigned int type;
     // unsigned short attr;
-    // unsigned int start_clu;
     // unsigned char flags;
     // /*
     //  * the copy of low 32bit of i_version to check
@@ -100,16 +100,16 @@ impl InodeExt for Inode {
 const EXFAT_MIN_SUBDIR: u32 = 2;
 
 // C name `exfat_read_root`
-pub(crate) fn read_root_inode(
-    inode: &mut Inode,
-    super_block: &mut SuperBlock,
-    exfat_sb_info: &mut SuperBlockInfo,
-) -> Result {
+pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -> Result {
     // TODO: We probably want to use this for something :shrug:
     let _info: &mut InodeInfo = inode.to_info_mut();
 
-    let root_dir = exfat_sb_info.boot_sector_info.root_dir;
-    let chain_reader = FatChainReader::new(super_block, root_dir);
+    let sb_info = &sbi.info;
+    let sb_state = sbi.state.as_mut().unwrap().get_mut();
+    let sb = &mut sb_state.sb;
+
+    let root_dir = sb_info.boot_sector_info.root_dir;
+    let chain_reader = FatChainReader::new(sb, root_dir);
 
     fn count_oks<T>(bucket: Result<u32>, item: Result<T>) -> Result<u32> {
         let _ = item?;
@@ -118,17 +118,17 @@ pub(crate) fn read_root_inode(
 
     let num_clusters = chain_reader.fold(Ok(0), count_oks)?;
 
-    let clusters_size = (num_clusters << exfat_sb_info.boot_sector_info.cluster_size_bits) as i64;
+    let clusters_size = (num_clusters << sbi.info.boot_sector_info.cluster_size_bits) as i64;
     // SAFETY: TODO
     unsafe {
         i_size_write(inode, clusters_size);
     }
 
-    let dir_reader = DirEntryReader::new(super_block, root_dir)?;
+    let dir_reader = ExfatDirEntryReader::new(sb_info, sb_state, root_dir)?;
     let num_subdirs = dir_reader
         .filter_map(|dir_entry| match dir_entry {
             Err(e) => Some(Err(e)),
-            Ok(DirEntry::File(file)) => {
+            Ok(ExfatDirEntry::File(file)) => {
                 if file.file_attributes.directory() {
                     Some(Ok(()))
                 } else {
@@ -144,8 +144,8 @@ pub(crate) fn read_root_inode(
         set_nlink(inode, num_subdirs + EXFAT_MIN_SUBDIR);
     }
 
-    inode.i_uid = exfat_sb_info.options.fs_uid;
-    inode.i_gid = exfat_sb_info.options.fs_gid;
+    inode.i_uid = sbi.info.options.fs_uid;
+    inode.i_gid = sbi.info.options.fs_gid;
 
     // SAFETY: TODO
     unsafe {
@@ -153,16 +153,15 @@ pub(crate) fn read_root_inode(
     }
 
     inode.i_generation = 0;
-    inode.i_mode = FileAttributes::from_u16(ROOT_FILE_ATTRIBUTE).to_unix(0o777, exfat_sb_info);
+    inode.i_mode = FileAttributes::from_u16(ROOT_FILE_ATTRIBUTE).to_unix(0o777, sb_info);
     inode.i_op = &DIR_INODE_OPERATIONS;
     // TODO(Tux): inode->i_fop = &exfat_dir_operations;
 
     // SAFETY: TODO
     let size = unsafe { i_size_read(inode) };
-    inode.i_blocks = math::round_up_to_next_multiple(
-        size as u64,
-        exfat_sb_info.boot_sector_info.cluster_size as u64,
-    ) >> inode.i_blkbits;
+    inode.i_blocks =
+        math::round_up_to_next_multiple(size as u64, sbi.info.boot_sector_info.cluster_size as u64)
+            >> inode.i_blkbits;
 
     // SAFETY: TODO
     let curr_time = unsafe { current_time(inode) };

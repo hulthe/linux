@@ -3,7 +3,7 @@
 #[macro_export]
 macro_rules! get_exfat_sb_from_sb {
     ($x: expr) => {{
-        let fs_info = $x.s_fs_info as *mut SuperBlockInfo;
+        let fs_info = $x.s_fs_info as *mut SuperBlockInfo<'_>;
         unsafe { &mut *fs_info }
     }};
 }

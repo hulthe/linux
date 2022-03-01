@@ -527,6 +527,19 @@ void rust_helper_inode_inc_iversion(struct inode *inode) {
 }
 EXPORT_SYMBOL_GPL(rust_helper_inode_inc_iversion);
 
+bool rust_helper_dir_emit(struct dir_context *ctx,
+			    const char *name, int namelen,
+			    u64 ino, unsigned type)
+{
+	return dir_emit(ctx, name, namelen, ino, type);
+}
+EXPORT_SYMBOL_GPL(rust_helper_dir_emit);
+
+bool rust_helper_dir_emit_dots(struct file *file, struct dir_context *ctx)
+{
+	return dir_emit_dots(file, ctx);
+}
+EXPORT_SYMBOL_GPL(rust_helper_dir_emit_dots);
 
 /* We use bindgen's --size_t-is-usize option to bind the C size_t type
  * as the Rust usize type, so we can use it in contexts where Rust
