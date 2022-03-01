@@ -1,7 +1,7 @@
 use crate::external::BufferHead;
 use crate::fat::ClusterIndex;
 use crate::fat::FatChainReader;
-use crate::superblock::{SuperBlock, SuperBlockExt, SuperBlockInfo, NUM_RESERVED_CLUSTERS};
+use crate::superblock::{SbInfo, SbState, SuperBlock, NUM_RESERVED_CLUSTERS};
 use core::cmp::min;
 use kernel::{pr_err, Error, Result};
 
@@ -10,6 +10,7 @@ pub(crate) struct ClusterChain<'a> {
 }
 
 struct ClusterChainState<'a> {
+    sb_info: &'a SbInfo,
     sb: &'a SuperBlock,
 
     fat_reader: FatChainReader<'a>,
@@ -27,26 +28,31 @@ struct ClusterChainState<'a> {
     cluster_sector: u64,
 }
 
-pub(crate) fn cluster_to_sector(sbi: &SuperBlockInfo, cluster: ClusterIndex) -> u64 {
-    let bs = &sbi.boot_sector_info;
+pub(crate) fn cluster_to_sector(sb_info: &SbInfo, cluster: ClusterIndex) -> u64 {
+    let bs = &sb_info.boot_sector_info;
     (cluster - 2) as u64 * bs.sect_per_clus as u64 + bs.data_start_sector
 }
 
 impl<'a> ClusterChain<'a> {
-    pub(crate) fn new(sb: &'a SuperBlock, index: ClusterIndex) -> Result<Self> {
-        if !(NUM_RESERVED_CLUSTERS..sb.info().boot_sector_info.cluster_count()).contains(&index) {
+    pub(crate) fn new(
+        sb_info: &'a SbInfo,
+        sb_state: &'a SbState<'a>,
+        index: ClusterIndex,
+    ) -> Result<Self> {
+        if !(NUM_RESERVED_CLUSTERS..sb_info.boot_sector_info.cluster_count()).contains(&index) {
             pr_err!("Tried to read invalid cluster index ({index})");
             return Err(Error::EINVAL);
         }
 
-        let start_sector = cluster_to_sector(sb.info(), index);
+        let start_sector = cluster_to_sector(sb_info, index);
         let state = ClusterChainState {
-            sector: BufferHead::block_read(sb, start_sector).ok_or(Error::EIO)?,
+            sector: BufferHead::block_read(sb_state.sb, start_sector).ok_or(Error::EIO)?,
             sector_cursor: 0,
             cluster_sector: 0,
             current_cluster: index,
-            fat_reader: FatChainReader::new(sb, index),
-            sb,
+            fat_reader: FatChainReader::new(sb_state.sb, index),
+            sb_info,
+            sb: sb_state.sb,
         };
 
         Ok(ClusterChain { state: Some(state) })
@@ -73,10 +79,9 @@ impl<'a> ClusterChain<'a> {
             None => return Ok(0),
         };
 
-        let sbi = state.sb.info();
-
         let load_sector = |state: &ClusterChainState<'a>| {
-            let sector = cluster_to_sector(&sbi, state.current_cluster) + state.cluster_sector;
+            let sector =
+                cluster_to_sector(state.sb_info, state.current_cluster) + state.cluster_sector;
             BufferHead::block_read(state.sb, sector).ok_or(Error::ENOMEM)
         };
 
@@ -92,7 +97,7 @@ impl<'a> ClusterChain<'a> {
             state.sector_cursor = 0;
             state.cluster_sector += 1;
 
-            if state.cluster_sector == sbi.boot_sector_info.sect_per_clus as u64 {
+            if state.cluster_sector == state.sb_info.boot_sector_info.sect_per_clus as u64 {
                 // finished reading cluster
                 state.cluster_sector = 0;
                 match state.fat_reader.next() {

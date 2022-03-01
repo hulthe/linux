@@ -1,66 +1,73 @@
 use crate::checksum::{calc_checksum_32, ChecksumType};
-use crate::directory::{DirEntry, DirEntryReader};
+use crate::directory::{ExfatDirEntry, ExfatDirEntryReader};
 use crate::external::BufferHead;
-use crate::get_exfat_sb_from_sb;
 use crate::heap::cluster_to_sector;
-use crate::superblock::SuperBlockInfo;
-use kernel::bindings::{sector_t, super_block};
+use crate::superblock::{SbInfo, SbState, SuperBlockInfo};
+use kernel::bindings::sector_t;
 use kernel::prelude::*;
 use kernel::{pr_err, pr_info, Error, Result};
 
 //const NUM_UPCASE: usize = 2918;
 const UTBL_COUNT: usize = 0x10000;
 
-pub(crate) fn create_upcase_table(sb: &mut super_block) -> Result {
+pub(crate) fn create_upcase_table(sbi: &mut SuperBlockInfo<'_>) -> Result {
     // TODO: scan the root directory set and read the allocation bitmap
-    let sbi = get_exfat_sb_from_sb!(sb);
-    let root_dir = sbi.boot_sector_info.root_dir;
+    let sb_info = &mut sbi.info;
+    let sb_state = sbi.state.as_mut().unwrap().get_mut();
+    let root_dir = sb_info.boot_sector_info.root_dir;
 
-    let upcase_entry = DirEntryReader::new(sb, root_dir)?
+    let upcase_entry = ExfatDirEntryReader::new(sb_info, sb_state, root_dir)?
         .find_map(|entry| match entry {
             Err(e) => Some(Err(e)),
-            Ok(DirEntry::UpCaseTable(entry)) => Some(Ok(entry)),
+            Ok(ExfatDirEntry::UpCaseTable(entry)) => Some(Ok(entry)),
             Ok(_) => None,
         })
         .transpose()?;
 
     match upcase_entry {
         Some(table) => {
-            let sector = cluster_to_sector(sbi, table.first_cluster.to_native());
-            let num_sectors = ((table.data_length.to_native() - 1) >> sb.s_blocksize_bits) + 1;
+            let sector = cluster_to_sector(sb_info, table.first_cluster.to_native());
+            let num_sectors =
+                ((table.data_length.to_native() - 1) >> sb_state.sb.s_blocksize_bits) + 1;
 
-            match load_upcase_table(sb, sector, num_sectors, table.table_checksum.to_native()) {
+            match load_upcase_table(
+                sb_info,
+                sb_state,
+                sector,
+                num_sectors,
+                table.table_checksum.to_native(),
+            ) {
                 e @ Err(Error::EIO) => return e,
                 Err(err) => {
                     pr_info!("Failed to load upcase table, err: {:?}", err);
-                    load_default_upcase_table(sb, sbi)?;
+                    load_default_upcase_table(sbi)?;
                 }
                 Ok(()) => {}
             }
         }
         None => {
-            load_default_upcase_table(sb, sbi)?;
+            load_default_upcase_table(sbi)?;
         }
     }
 
     Ok(())
 }
 
-fn load_default_upcase_table(sb: &mut super_block, sbi: &mut SuperBlockInfo) -> Result {
+fn load_default_upcase_table(_sbi: &mut SuperBlockInfo<'_>) -> Result {
     // TODO:
     todo!("Implement function");
 }
 
 #[allow(dead_code)] // TODO
 fn load_upcase_table(
-    sb: &mut super_block,
+    sb_info: &mut SbInfo,
+    sb_state: &mut SbState<'_>,
     mut sector: sector_t,
     mut num_sectors: u64,
     utbl_checksum: u32,
 ) -> Result {
     // TODO: we might want to rewrite this to use ClusterChain
-    let sbi: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
-    let sector_size = sb.s_blocksize as usize;
+    let sector_size = sb_state.sb.s_blocksize as usize;
 
     // unclear what type the UTF16 string should be
     // TODO: this might overflow the stack...
@@ -72,7 +79,7 @@ fn load_upcase_table(
     num_sectors += sector;
 
     while sector < num_sectors {
-        let bh = BufferHead::block_read(sb, sector).ok_or_else(|| {
+        let bh = BufferHead::block_read(sb_state.sb, sector).ok_or_else(|| {
             pr_err!("Failed to read sector");
             Error::EIO
         })?;
@@ -115,7 +122,7 @@ fn load_upcase_table(
     }
 
     if unicode_index >= 0xffff && utbl_checksum == checksum as u32 {
-        sbi.vol_utbl = Some(upcase_table);
+        sb_info.upcase_table = Some(upcase_table);
         Ok(())
     } else {
         pr_err!("Failed to load upcase table");

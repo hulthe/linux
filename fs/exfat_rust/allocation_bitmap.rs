@@ -1,7 +1,6 @@
-use crate::directory::{DirEntry, DirEntryReader};
-use crate::get_exfat_sb_from_sb;
+use crate::directory::{ExfatDirEntry, ExfatDirEntryReader};
 use crate::heap::ClusterChain;
-use crate::superblock::{SuperBlock, SuperBlockInfo};
+use crate::superblock::SuperBlockInfo;
 use crate::BITS_PER_BYTE;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -32,14 +31,14 @@ impl AllocationBitmap {
     }
 }
 
-pub(crate) fn load_allocation_bitmap(sb: &mut SuperBlock) -> Result {
-    let sbi = get_exfat_sb_from_sb!(sb);
-    let root_dir = sbi.boot_sector_info.root_dir;
+pub(crate) fn load_allocation_bitmap(sbi: &mut SuperBlockInfo<'_>) -> Result {
+    let sb_state = &mut sbi.state.as_mut().unwrap().get_mut();
+    let root_dir = sbi.info.boot_sector_info.root_dir;
 
-    let bitmap_entry = DirEntryReader::new(sb, root_dir)?
+    let bitmap_entry = ExfatDirEntryReader::new(&sbi.info, sb_state, root_dir)?
         .find_map(|entry| match entry {
             Err(e) => Some(Err(e)),
-            Ok(DirEntry::AllocationBitmap(entry)) => Some(Ok(entry)),
+            Ok(ExfatDirEntry::AllocationBitmap(entry)) => Some(Ok(entry)),
             Ok(_) => None,
         })
         .ok_or(Error::EINVAL)??;
@@ -50,8 +49,8 @@ pub(crate) fn load_allocation_bitmap(sb: &mut SuperBlock) -> Result {
         return Err(Error::EINVAL);
     }
 
-    sbi.map_clu = bitmap_entry.first_cluster.to_native();
-    let cluster_count = sbi.boot_sector_info.cluster_count();
+    sbi.info.map_clu = bitmap_entry.first_cluster.to_native();
+    let cluster_count = sbi.info.boot_sector_info.cluster_count();
     let size = bitmap_entry.data_length.to_native();
     let required_size = ((cluster_count - 1) as u64 / BITS_PER_BYTE as u64) + 1;
 
@@ -76,7 +75,7 @@ pub(crate) fn load_allocation_bitmap(sb: &mut SuperBlock) -> Result {
         bitmap.try_push(0)?;
     }
 
-    ClusterChain::new(sb, sbi.map_clu)?.read_exact(&mut bitmap)?;
+    ClusterChain::new(&sbi.info, sb_state, sbi.info.map_clu)?.read_exact(&mut bitmap)?;
 
     // make sure the trailing bits are 0
     let trailing_bits = required_size * BITS_PER_BYTE as u64 - cluster_count as u64;
