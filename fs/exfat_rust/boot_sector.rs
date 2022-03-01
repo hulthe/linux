@@ -161,7 +161,15 @@ pub(crate) fn read_boot_sector(sb: &mut super_block) -> Result<&mut SuperBlockIn
         return Err(Error::EINVAL);
     }
 
-    // TODO: Finish function I guess?
+    if (boot_sector_info.vol_flags & VOLUME_DIRTY_FLAG as u32) != 0 {
+        pr_warn!("Volume was not properly unmounted. Some data may be corrupt. Please run fsck");
+    }
+    if (boot_sector_info.vol_flags & MEDIA_FAILURE_FLAG as u32) != 0 {
+        pr_warn!("Medium has reported failures. Some data may be lost");
+    }
+
+    sb.s_maxbytes = ((boot_sector_info.num_clusters - EXFAT_RESERVED_CLUSTERS)
+        << boot_sector_info.cluster_size_bits) as i64;
 
     sbi.boot_sector_info = boot_sector_info;
     Ok(sbi)
@@ -218,7 +226,7 @@ pub(crate) fn verify_boot_region(sb: &mut super_block) -> Result {
 
         if checksum_on_disk != checksum {
             pr_err!(
-                "Invalid boot checksum (on disk: {}, calculated: {})",
+                "Invalid boot checksum (on disk: {:#x}, calculated: {:#x})",
                 checksum_on_disk,
                 checksum
             );
