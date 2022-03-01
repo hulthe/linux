@@ -123,7 +123,14 @@ impl ExfatErrorMode {
     }
 }
 
+impl Default for ExfatErrorMode {
+    fn default() -> Self {
+        Self::Continue
+    }
+}
+
 #[allow(dead_code)] // TODO
+#[derive(Default)]
 pub(crate) struct ExfatMountOptions {
     pub(crate) fs_uid: kuid_t,
     pub(crate) fs_gid: kgid_t,
@@ -136,21 +143,4 @@ pub(crate) struct ExfatMountOptions {
     pub(crate) utf8: bool,
     pub(crate) discard: bool,
     pub(crate) time_offset: c_types::c_int,
-}
-
-impl Default for ExfatMountOptions {
-    fn default() -> Self {
-        Self {
-            fs_uid: kuid_t::default(),
-            fs_gid: kgid_t::default(),
-            fs_fmask: 0,
-            fs_dmask: 0,
-            allow_utime: 0,
-            iocharset: String::new(),
-            errors: ExfatErrorMode::Continue,
-            utf8: true,
-            discard: true,
-            time_offset: 0,
-        }
-    }
 }
