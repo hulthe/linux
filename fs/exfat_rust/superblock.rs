@@ -4,37 +4,28 @@ use alloc::string::String;
 use kernel::bindings::{kgid_t, kuid_t};
 use kernel::c_types;
 use kernel::prelude::*;
-use kernel::sync::SpinLock;
+use kernel::sync::{Mutex, SpinLock};
 
 pub(crate) type SuperBlock = kernel::bindings::super_block;
 
 pub(crate) const NUM_RESERVED_CLUSTERS: u32 = 2;
 
+pub(crate) fn take_sb<'a>(sb: &'a *mut SuperBlock) -> &'a SuperBlockInfo<'a> {
+    unsafe { &*((**sb).s_fs_info as *mut SuperBlockInfo<'a>) }
+}
+
 // port of `exfat_sb_info` in exfat_fs.h
 #[allow(dead_code)] // TODO
 #[derive(Default)]
-pub(crate) struct SuperBlockInfo {
-    // /// buffer_head of BOOT sector
-    pub(crate) boot_sector_info: BootSectorInfo,
+pub(crate) struct SuperBlockInfo<'a> {
+    pub(crate) info: SbInfo,
+
+    pub(crate) state: Option<Mutex<SbState<'a>>>,
 
     //struct buffer_head *boot_bh,
-    /// allocation bitmap start cluster
-    pub(crate) map_clu: u32,
-
     /// allocation bitmap
+    // TODO: Add lock
     pub(crate) allocation_bitmap: Option<AllocationBitmap>,
-
-    // /// upcase table
-    pub(crate) vol_utbl: Option<Box<[u16]>>,
-
-    // /// superblock lock
-    //struct mutex s_lock,
-    // /// bitmap lock
-    //struct mutex bitmap_lock,
-    pub(crate) options: ExfatMountOptions,
-    // /// Charset used for input and display
-    //struct nls_table *nls_io,
-    //struct ratelimit_state ratelimit,
 
     // TODO: Inspect performance of this, original implementation used a hashtable of
     // Linked lists (for collisions?)
@@ -42,23 +33,32 @@ pub(crate) struct SuperBlockInfo {
     //struct rcu_head rcu,
 }
 
+#[derive(Default)]
+pub(crate) struct SbInfo {
+    pub(crate) boot_sector_info: BootSectorInfo,
+
+    /// allocation bitmap start cluster
+    pub(crate) map_clu: u32,
+
+    pub(crate) options: ExfatMountOptions,
+
+    /// UpCase table
+    pub(crate) upcase_table: Option<Box<[u16]>>,
+    // /// Charset used for input and display
+    //struct nls_table *nls_io,
+    //struct ratelimit_state ratelimit,
+}
+
+pub(crate) struct SbState<'a> {
+    /// SuperBlock
+    pub(crate) sb: &'a mut SuperBlock,
+}
+
 pub(crate) trait SuperBlockExt {
-    fn info(&self) -> &SuperBlockInfo;
-    fn info_mut(&mut self) -> &mut SuperBlockInfo;
     fn bytes_to_sectors(&self, bytes: u64) -> u64;
 }
 
 impl SuperBlockExt for SuperBlock {
-    fn info(&self) -> &SuperBlockInfo {
-        let fs_info = self.s_fs_info as *const SuperBlockInfo;
-        unsafe { &*fs_info }
-    }
-
-    fn info_mut(&mut self) -> &mut SuperBlockInfo {
-        let fs_info = self.s_fs_info as *mut SuperBlockInfo;
-        unsafe { &mut *fs_info }
-    }
-
     fn bytes_to_sectors(&self, bytes: u64) -> u64 {
         ((bytes - 1) >> (self.s_blocksize_bits)) + 1
     }

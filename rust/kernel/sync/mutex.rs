@@ -60,6 +60,12 @@ impl<T> Mutex<T> {
             _pin: PhantomPinned,
         }
     }
+
+    /// Get mutable access to the data in the lock. This is safe since the caller has exclusive
+    /// access to the lock.
+    pub fn get_mut(&mut self) -> &mut T {
+        self.data.get_mut()
+    }
 }
 
 impl<T: ?Sized> Mutex<T> {

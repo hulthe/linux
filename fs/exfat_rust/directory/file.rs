@@ -1,4 +1,4 @@
-use crate::superblock::SuperBlockInfo;
+use crate::superblock::SbInfo;
 use core::mem::{size_of, transmute};
 use kernel::bindings::{S_IFDIR, S_IFREG};
 use kernel::endian::u16le;
@@ -68,7 +68,7 @@ impl FileAttributes {
     }
 
     // Convert exFAT file attributes to the UNIX mode
-    pub(crate) fn to_unix(&self, mut mode: u16, sb_info: &SuperBlockInfo) -> u16 {
+    pub(crate) fn to_unix(&self, mut mode: u16, sb_info: &SbInfo) -> u16 {
         if self.directory() {
             return (mode & !sb_info.options.fs_dmask) | (S_IFDIR as u16);
         }
