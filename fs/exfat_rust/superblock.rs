@@ -16,7 +16,6 @@ pub(crate) fn take_sb<'a>(sb: &'a *mut SuperBlock) -> &'a SuperBlockInfo<'a> {
 
 // port of `exfat_sb_info` in exfat_fs.h
 #[allow(dead_code)] // TODO
-#[derive(Default)]
 pub(crate) struct SuperBlockInfo<'a> {
     pub(crate) info: SbInfo,
 
@@ -25,11 +24,11 @@ pub(crate) struct SuperBlockInfo<'a> {
     //struct buffer_head *boot_bh,
     /// allocation bitmap
     // TODO: Add lock
-    pub(crate) allocation_bitmap: Option<AllocationBitmap>,
+    pub(crate) allocation_bitmap: AllocationBitmap,
 
     // TODO: Inspect performance of this, original implementation used a hashtable of
     // Linked lists (for collisions?)
-    pub(crate) inode_hashtable: Option<SpinLock<InodeHashTable>>,
+    pub(crate) inode_hashtable: SpinLock<InodeHashTable>,
     //struct rcu_head rcu,
 }
 
