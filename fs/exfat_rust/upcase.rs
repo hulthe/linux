@@ -61,7 +61,6 @@ fn load_upcase_table(
     // TODO: we might want to rewrite this to use ClusterChain
     let sbi: &mut SuperBlockInfo = get_exfat_sb_from_sb!(sb);
     let sector_size = sb.s_blocksize as usize;
-    pr_info!("SECTOR SIZE: {}", sector_size);
 
     // unclear what type the UTF16 string should be
     // TODO: this might overflow the stack...
