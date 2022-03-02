@@ -1,6 +1,7 @@
 use crate::directory::file::{FileAttributes, ROOT_FILE_ATTRIBUTE};
 use crate::directory::{ExfatDirEntry, ExfatDirEntryReader};
 use crate::fat::FatChainReader;
+use crate::file_ops::DIR_OPERATIONS;
 use crate::inode_dir_operations::DIR_INODE_OPERATIONS;
 use crate::math;
 use crate::superblock::SuperBlockInfo;
@@ -155,7 +156,8 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
     inode.i_generation = 0;
     inode.i_mode = FileAttributes::from_u16(ROOT_FILE_ATTRIBUTE).to_unix(0o777, sb_info);
     inode.i_op = &DIR_INODE_OPERATIONS;
-    // TODO(Tux): inode->i_fop = &exfat_dir_operations;
+
+    inode.__bindgen_anon_3.i_fop = unsafe { &DIR_OPERATIONS };
 
     // SAFETY: TODO
     let size = unsafe { i_size_read(inode) };

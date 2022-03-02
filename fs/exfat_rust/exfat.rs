@@ -6,7 +6,7 @@ mod constant_table;
 mod directory;
 mod external;
 mod fat;
-//mod file_ops;
+mod file_ops;
 mod fs_parameter;
 mod heap;
 mod inode;
