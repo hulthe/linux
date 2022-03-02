@@ -22,9 +22,7 @@ pub(crate) fn calc_checksum_16(data: &[u8], mut checksum: u16, checksum_type: Ch
 }
 
 pub(crate) fn calc_checksum_32(data: &[u8], mut checksum: u32, checksum_type: ChecksumType) -> u32 {
-    let calc = |byte: u8| {
-        checksum = ((checksum << 31) | (checksum >> 1)) + byte as u32;
-    };
+    let calc = |byte: u8| checksum = ((checksum << 31) | (checksum >> 1)).wrapping_add(byte as u32);
 
     if checksum_type == ChecksumType::BootSector {
         // Skip volume flags & percent in use fields for checksum calculation
