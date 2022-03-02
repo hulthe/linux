@@ -82,16 +82,15 @@ fn load_upcase_table(
 
         let b_data = &bh.bytes()[..sector_size];
 
-        let mut last_index = 0;
+        let mut last_index = b_data.len();
         for (i, entry) in b_data
             .chunks_exact(2)
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .enumerate()
         {
-            last_index = i * 2;
-
             // check if we've read the entire range of unicode values
             if unicode_index > 0xffff {
+                last_index = i * 2;
                 break;
             }
 
