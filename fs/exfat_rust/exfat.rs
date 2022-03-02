@@ -22,12 +22,12 @@ use core::ptr::{null, null_mut};
 use fs_parameter::{ExfatOptions, FsParameterSpec};
 use inode::InodeHashTable;
 use kernel::bindings::{
-    file_system_type as FileSystemType, fs_context, fs_context_operations as FsContextOps,
-    fs_param_deprecated, fs_parameter_spec, get_tree_bdev, hlist_head as HlistHead, inode as Inode,
-    inode_set_iversion, kill_block_super, lock_class_key as LockClassKey, new_inode,
-    register_filesystem, request_queue as RequestQueue, super_block,
-    super_operations as SuperOperations, unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV,
-    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME,
+    d_make_root, file_system_type as FileSystemType, fs_context,
+    fs_context_operations as FsContextOps, fs_param_deprecated, fs_parameter_spec, get_tree_bdev,
+    hlist_head as HlistHead, inode as Inode, inode_set_iversion, kill_block_super,
+    lock_class_key as LockClassKey, new_inode, register_filesystem, request_queue as RequestQueue,
+    super_block, super_operations as SuperOperations, unregister_filesystem, EXFAT_SUPER_MAGIC,
+    FS_REQUIRES_DEV, NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME,
 };
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
@@ -186,7 +186,6 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
     from_kernel_result! {
         // SAFETY: TODO
         let sb = unsafe { &mut *sb };
-
         fill_super(sb)?;
         Ok(())
     }
@@ -222,9 +221,8 @@ fn fill_super(sb: &mut super_block) -> Result {
     sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
     read_exfat_partition(sb)?;
 
-    return Ok(());
-
-    exfat_hash_init(sb);
+    // TODO: @Tux look at this whenever the locking is finished.
+    // exfat_hash_init(sb);
 
     if opts.iocharset != UTF8 {
         opts.utf8 = true;
@@ -237,7 +235,6 @@ fn fill_super(sb: &mut super_block) -> Result {
         pr_err!("Failed to allocate root inode");
         Error::ENOMEM
     })?;
-
     root_inode.i_ino = EXFAT_ROOT_INO;
     // SAFETY: TODO
     unsafe {
@@ -245,7 +242,8 @@ fn fill_super(sb: &mut super_block) -> Result {
     }
     inode::read_root_inode(root_inode, sb, exfat_sb_info)?;
 
-    // TODO: Finish function
+    // SAFETY: TODO: The kernel giveth, the kernel taketh away
+    sb.s_root = unsafe { d_make_root(root_inode) };
 
     pr_info!("exfat_fill_super exit");
     Ok(())
@@ -261,7 +259,9 @@ fn exfat_hash_init(sb: &mut super_block) {
         unsafe { Pin::new_unchecked(&mut inode_hash_table_lock) },
         "Exfat inode hashtable spinlock"
     );
+
     sbi.inode_hashtable = Some(inode_hash_table_lock);
+    return;
 }
 
 fn read_exfat_partition(sb: &mut super_block) -> Result {
