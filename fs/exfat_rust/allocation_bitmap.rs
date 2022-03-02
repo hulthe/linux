@@ -16,6 +16,16 @@ pub(crate) struct AllocationBitmap {
     cluster_count: u32,
 }
 
+impl Default for AllocationBitmap {
+    fn default() -> Self {
+        Self {
+            bitmap: Box::try_new([]).unwrap(), // Zero-sized types don't allocade
+            allocation_count: 0,
+            cluster_count: 0,
+        }
+    }
+}
+
 impl AllocationBitmap {
     //pub(crate) fn free_cluster_count(&self) -> u64 {
     //    self.cluster_count as u64 - self.allocated_cluster_count()
@@ -91,7 +101,7 @@ pub(crate) fn load_allocation_bitmap(sbi: &mut SuperBlockInfo<'_>) -> Result {
     };
     bitmap.count_allocations();
 
-    sbi.allocation_bitmap = Some(bitmap);
+    sbi.allocation_bitmap = bitmap;
 
     Ok(())
 }

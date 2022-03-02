@@ -1,5 +1,4 @@
 //! A Rust implementation of the exFAT filesystem
-
 mod allocation_bitmap;
 mod boot_sector;
 mod checksum;
@@ -21,7 +20,6 @@ use constant_table::ConstantTable;
 use core::pin::Pin;
 use core::ptr::{null, null_mut};
 use fs_parameter::{ExfatOptions, FsParameterSpec};
-use inode::InodeHashTable;
 use kernel::bindings::{
     d_make_root, file_system_type as FileSystemType, fs_context,
     fs_context_operations as FsContextOps, fs_param_deprecated, fs_parameter_spec, get_tree_bdev,
@@ -195,6 +193,8 @@ extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_
 fn fill_super(sb: &mut SuperBlock) -> Result {
     pr_info!("exfat_fill_super enter");
     let exfat_sb_info = get_exfat_sb_from_sb!(sb);
+    //let exfat_sb_info = Pin::new(exfat_sb_info);
+    //let exfat_sb_info: &mut SuperBlockInfo = exfat_sb_info.get_mut();
 
     let opts: &mut ExfatMountOptions = &mut exfat_sb_info.info.options;
     if opts.allow_utime == u16::MAX {
@@ -221,6 +221,10 @@ fn fill_super(sb: &mut SuperBlock) -> Result {
 
     let sb_state = unsafe { Mutex::new(SbState { sb }) };
     exfat_sb_info.state = Some(sb_state);
+    kernel::mutex_init!(
+        unsafe { Pin::new_unchecked(exfat_sb_info.state.as_mut().unwrap()) },
+        "ExFAT superblock mutex"
+    );
 
     read_exfat_partition(exfat_sb_info)?;
 
@@ -256,17 +260,11 @@ fn fill_super(sb: &mut SuperBlock) -> Result {
 }
 
 fn exfat_hash_init(sbi: &mut SuperBlockInfo<'_>) {
-    let inode_hash_table: InodeHashTable = InodeHashTable::new();
-    // SAFETY: TODO
-    let mut inode_hash_table_lock = unsafe { SpinLock::new(inode_hash_table) };
     // SAFETY: TODO
     kernel::spinlock_init!(
-        unsafe { Pin::new_unchecked(&mut inode_hash_table_lock) },
-        "Exfat inode hashtable spinlock"
+        unsafe { Pin::new_unchecked(&mut sbi.inode_hashtable) },
+        "ExFAT inode hashtable spinlock"
     );
-
-    sbi.inode_hashtable = Some(inode_hash_table_lock);
-    return;
 }
 
 fn read_exfat_partition(sbi: &mut SuperBlockInfo<'_>) -> Result {
@@ -296,7 +294,14 @@ pub extern "C" fn init_fs_context(fc: *mut fs_context) -> c_int {
 
         // TODO: properly initialize sb
         // TODO: might overflow the stack
-        let sbi = Box::try_new(SuperBlockInfo::default())?;
+        let sbi = Box::try_new(SuperBlockInfo {
+            info: Default::default(),
+
+            allocation_bitmap: Default::default(),
+
+            state: None,
+            inode_hashtable: unsafe { SpinLock::new(Default::default()) },
+        })?;
 
         // SAFETY: TODO
         let fc = unsafe { &mut *fc };

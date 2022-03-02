@@ -18,8 +18,8 @@ pub(crate) struct InodeHashTable {
     inner: [Vec<Inode>; EXFAT_HASH_SIZE],
 }
 
-impl InodeHashTable {
-    pub(crate) fn new() -> Self {
+impl Default for InodeHashTable {
+    fn default() -> Self {
         const EMPTY: Vec<Inode> = Vec::new();
         Self {
             inner: [EMPTY; EXFAT_HASH_SIZE],
