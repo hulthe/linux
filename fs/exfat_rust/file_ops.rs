@@ -4,23 +4,23 @@ use crate::inode::InodeExt;
 use crate::superblock::take_sb;
 use core::ptr::null_mut;
 use kernel::bindings::{
-    dir_context as DirContext, dir_emit_dots, file as File, file_operations as FileOperations,
-    generic_file_llseek, generic_read_dir,
+    __generic_file_fsync, blkdev_issue_flush, dir_context as DirContext, dir_emit_dots,
+    file as File, file_operations as FileOperations, generic_file_llseek, generic_read_dir, loff_t,
+    sync_blockdev,
 };
 use kernel::c_types::c_int;
-
-// TODO: create and export `file_operations`-struct
+use kernel::pr_info;
 
 pub(crate) static mut DIR_OPERATIONS: FileOperations = FileOperations {
-    owner: null_mut(),
     llseek: Some(generic_file_llseek),
     read: Some(generic_read_dir),
     iterate: Some(exfat_iterate),
     unlocked_ioctl: None, // TODO
     compat_ioctl: None,   // TODO
-    fsync: None,          // TODO
+    fsync: Some(file_fsync),
 
     // Should be none
+    owner: null_mut(),
     write: None,
     read_iter: None,
     write_iter: None,
@@ -48,7 +48,26 @@ pub(crate) static mut DIR_OPERATIONS: FileOperations = FileOperations {
     fadvise: None,
 };
 
+extern "C" fn file_fsync(file: *mut File, start: loff_t, end: loff_t, datasync: c_int) -> c_int {
+    pr_info!("file_fsync called");
+    let inode = unsafe { (*(*file).f_mapping).host };
+
+    let err = unsafe { __generic_file_fsync(file, start, end, datasync) };
+    if err != 0 {
+        return err;
+    }
+
+    let block_device = unsafe { (*(*inode).i_sb).s_bdev };
+    let err = unsafe { sync_blockdev(block_device) };
+    if err != 0 {
+        return err;
+    }
+
+    return unsafe { blkdev_issue_flush(block_device) };
+}
+
 extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int {
+    pr_info!("exfat_iterate called");
     from_kernel_result! {
         const ITER_POS_FILLED_DOTS: u64 = 2;
 
