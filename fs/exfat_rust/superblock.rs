@@ -1,6 +1,5 @@
 use crate::allocation_bitmap::AllocationBitmap;
 use crate::inode::InodeHashTable;
-use alloc::string::String;
 use kernel::bindings::{kgid_t, kuid_t};
 use kernel::c_types;
 use kernel::prelude::*;
@@ -113,6 +112,15 @@ pub(crate) enum ExfatErrorMode {
 }
 
 impl ExfatErrorMode {
+    pub(crate) fn from_c_int(val: c_types::c_uint) -> Result<Self> {
+        Ok(match val {
+            0 => Self::Continue,
+            1 => Self::Panic,
+            2 => Self::RemountRo,
+            _ => return Err(Error::EINVAL),
+        })
+    }
+
     pub(crate) const fn get_name(self) -> *const c_types::c_char {
         match self {
             ExfatErrorMode::Continue => b"continue\0".as_ptr() as *const i8,
@@ -137,7 +145,7 @@ pub(crate) struct ExfatMountOptions {
     pub(crate) fs_dmask: c_types::c_ushort,
     /* Permission for setting the [am]time*/
     pub(crate) allow_utime: c_types::c_ushort,
-    pub(crate) iocharset: String,
+    pub(crate) iocharset: &'static str,
     pub(crate) errors: ExfatErrorMode,
     pub(crate) utf8: bool,
     pub(crate) discard: bool,

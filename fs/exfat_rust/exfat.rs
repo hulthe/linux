@@ -16,13 +16,12 @@ mod math;
 mod superblock;
 mod upcase;
 
-use constant_table::ConstantTable;
 use core::pin::Pin;
-use core::ptr::{null, null_mut};
-use fs_parameter::{ExfatOptions, FsParameterSpec};
+use core::ptr::null_mut;
+use fs_parameter::{exfat_parse_param, EXFAT_PARAMETERS};
 use kernel::bindings::{
     d_make_root, file_system_type as FileSystemType, fs_context,
-    fs_context_operations as FsContextOps, fs_param_deprecated, fs_parameter_spec, get_tree_bdev,
+    fs_context_operations as FsContextOps, fs_parameter_spec, get_tree_bdev,
     hlist_head as HlistHead, inode as Inode, inode_set_iversion, kill_block_super,
     lock_class_key as LockClassKey, new_inode, register_filesystem, request_queue as RequestQueue,
     super_block, super_operations as SuperOperations, unregister_filesystem, EXFAT_SUPER_MAGIC,
@@ -33,76 +32,9 @@ use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
 use kernel::sync::{Mutex, SpinLock};
 use kernel::{pr_warn, Error, Result, ThisModule};
-use superblock::{ExfatErrorMode, ExfatMountOptions, SbState, SuperBlock, SuperBlockInfo};
+use superblock::{ExfatMountOptions, SbState, SuperBlock, SuperBlockInfo};
 
 struct ExFatRust;
-
-static EXFAT_PARAM_ENUMS: &[ConstantTable] = &[
-    ConstantTable {
-        name: ExfatErrorMode::Continue.get_name(),
-        value: ExfatErrorMode::Continue as i32,
-    },
-    ConstantTable {
-        name: ExfatErrorMode::Panic.get_name(),
-        value: ExfatErrorMode::Panic as i32,
-    },
-    ConstantTable {
-        name: ExfatErrorMode::RemountRo.get_name(),
-        value: ExfatErrorMode::RemountRo as i32,
-    },
-    // Null terminator?
-    ConstantTable {
-        name: null(),
-        value: 0,
-    },
-];
-
-static EXFAT_PARAMETERS: &[FsParameterSpec] = &[
-    FsParameterSpec::fsparam_u32(b"uid\0", ExfatOptions::Uid),
-    FsParameterSpec::fsparam_u32(b"gid\0", ExfatOptions::Gid),
-    FsParameterSpec::fsparam_u32oct(b"umask\0", ExfatOptions::Umask),
-    FsParameterSpec::fsparam_u32oct(b"dmask\0", ExfatOptions::Dmask),
-    FsParameterSpec::fsparam_u32oct(b"fmask\0", ExfatOptions::Fmask),
-    FsParameterSpec::fsparam_u32oct(b"allow_utime\0", ExfatOptions::AllowUtime),
-    FsParameterSpec::fsparam_string(b"iocharset\0", ExfatOptions::Charset),
-    FsParameterSpec::fsparam_enum(
-        b"errors\0",
-        ExfatOptions::Errors,
-        EXFAT_PARAM_ENUMS as *const _ as *const c_types::c_void,
-    ),
-    FsParameterSpec::fsparam_flag(b"discard\0", ExfatOptions::Discard),
-    FsParameterSpec::fsparam_s32(b"time_offset\0", ExfatOptions::TimeOffset),
-    FsParameterSpec::fsparam(
-        None,
-        b"utf8\0",
-        ExfatOptions::Utf8,
-        fs_param_deprecated,
-        null(),
-    ),
-    FsParameterSpec::fsparam(
-        None,
-        b"debug\0",
-        ExfatOptions::Debug,
-        fs_param_deprecated,
-        null(),
-    ),
-    FsParameterSpec::fsparam(
-        None,
-        b"namecase\0",
-        ExfatOptions::Namecase,
-        fs_param_deprecated,
-        null(),
-    ),
-    FsParameterSpec::fsparam(
-        None,
-        b"codepage\0",
-        ExfatOptions::Codepage,
-        fs_param_deprecated,
-        null(),
-    ),
-    // Null terminator?
-    FsParameterSpec::null(),
-];
 
 static mut FS_TYPE: FileSystemType = FileSystemType {
     // seems to be required
@@ -129,10 +61,10 @@ static mut FS_TYPE: FileSystemType = FileSystemType {
 };
 
 static mut CONTEXT_OPS: FsContextOps = FsContextOps {
-    free: None,                     // TODO
-    parse_param: None,              // TODO
-    get_tree: Some(exfat_get_tree), // TODO
-    reconfigure: None,              // TODO
+    free: None, // TODO
+    parse_param: Some(exfat_parse_param),
+    get_tree: Some(exfat_get_tree),
+    reconfigure: None, // TODO
 
     // not needed?
     dup: None,
