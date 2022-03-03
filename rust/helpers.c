@@ -36,6 +36,7 @@
 #include <linux/irqdomain.h>
 #include <linux/amba/bus.h>
 #include <linux/of_device.h>
+#include <linux/fs_parser.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -540,6 +541,29 @@ bool rust_helper_dir_emit_dots(struct file *file, struct dir_context *ctx)
 	return dir_emit_dots(file, ctx);
 }
 EXPORT_SYMBOL_GPL(rust_helper_dir_emit_dots);
+int rust_helper_fs_parse(struct fs_context *fc,
+			   const struct fs_parameter_spec *desc,
+			   struct fs_parameter *param,
+			   struct fs_parse_result *result) {
+	return fs_parse(fc, desc, param, result);
+}
+EXPORT_SYMBOL_GPL(rust_helper_fs_parse);
+
+kuid_t rust_helper_make_kuid(struct user_namespace *from, uid_t uid) {
+	return make_kuid(from, uid);
+}
+EXPORT_SYMBOL_GPL(rust_helper_make_kuid);
+
+kgid_t rust_helper_make_kgid(struct user_namespace *from, uid_t uid) {
+	return make_kgid(from, uid);
+}
+EXPORT_SYMBOL_GPL(rust_helper_make_kgid);
+
+struct user_namespace *rust_helper_current_user_ns(void)
+{
+	return current_user_ns();
+}
+EXPORT_SYMBOL_GPL(rust_helper_current_user_ns);
 
 /* We use bindgen's --size_t-is-usize option to bind the C size_t type
  * as the Rust usize type, so we can use it in contexts where Rust
