@@ -137,7 +137,6 @@ impl Default for ExfatErrorMode {
 }
 
 #[allow(dead_code)] // TODO
-#[derive(Default)]
 pub(crate) struct ExfatMountOptions {
     pub(crate) fs_uid: kuid_t,
     pub(crate) fs_gid: kgid_t,
@@ -145,9 +144,38 @@ pub(crate) struct ExfatMountOptions {
     pub(crate) fs_dmask: c_types::c_ushort,
     /* Permission for setting the [am]time*/
     pub(crate) allow_utime: c_types::c_ushort,
-    pub(crate) iocharset: &'static str,
+    pub(crate) iocharset: Box<CStr>,
     pub(crate) errors: ExfatErrorMode,
     pub(crate) utf8: bool,
     pub(crate) discard: bool,
     pub(crate) time_offset: c_types::c_int,
+}
+
+impl Default for ExfatMountOptions {
+    fn default() -> Self {
+        Self {
+            fs_uid: Default::default(),
+            fs_gid: Default::default(),
+            fs_fmask: Default::default(),
+            fs_dmask: Default::default(),
+            allow_utime: Default::default(),
+            // SAFETY: TODO: Look.... We tried and we failed. This should probably be a COW instead.
+            iocharset: unsafe {
+                Box::from_raw(CStr::from_bytes_with_nul_unchecked(&[]) as *const _ as *mut _)
+            },
+            errors: Default::default(),
+            utf8: Default::default(),
+            discard: Default::default(),
+            time_offset: Default::default(),
+        }
+    }
+}
+
+// TODO: figure out how to deal with this.
+// const EXFAT_DEFAULT_IOCHARSET: &[u8] = #[cfg(CONFIG_EXFAT_DEFAULT_IOCHARSET)];
+
+impl ExfatMountOptions {
+    pub(crate) fn free_iocharset(&mut self) {
+        todo!("Free iocharset");
+    }
 }
