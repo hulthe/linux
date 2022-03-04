@@ -11,11 +11,14 @@ mod fs_parameter;
 mod heap;
 mod inode;
 mod inode_dir_operations;
+mod kmem_cache;
 mod macros;
 mod math;
 mod superblock;
 mod upcase;
 
+use crate::inode::INODE_CACHE;
+use constant_table::ConstantTable;
 use core::pin::Pin;
 use core::ptr::null_mut;
 use fs_parameter::{exfat_parse_param, EXFAT_PARAMETERS};
@@ -98,7 +101,7 @@ extern "C" fn exfat_get_tree(fc: *mut fs_context) -> c_types::c_int {
 }
 
 static mut EXFAT_SOPS: SuperOperations = SuperOperations {
-    alloc_inode: None,  // TODO
+    alloc_inode: Some(inode::alloc_inode),
     free_inode: None,   // TODO
     write_inode: None,  // TODO
     evict_inode: None,  // TODO
@@ -286,8 +289,18 @@ impl KernelModule for ExFatRust {
         pr_info!("### Rust ExFat ### init\n");
 
         // SAFETY: TODO
-        unsafe {
-            FS_TYPE.owner = module.0;
+        unsafe { FS_TYPE.owner = module.0 };
+
+        // bindgen is having trouble with these constants. TODO: move them somewhere else
+        const SLAB_RECLAIM_ACCOUNT: u32 = 0x00020000;
+        const SLAB_MEM_SPREAD: u32 = 0x0010000;
+        if let Err(e) = unsafe {
+            INODE_CACHE.create(
+                "exfat inode cache\0",
+                SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD,
+            )
+        } {
+            pr_err!("failed to initialize inode cache: {e:?}");
         }
 
         // SAFETY: TODO

@@ -110,6 +110,7 @@ impl Iterator for ExfatDirEntryReader<'_> {
 }
 
 /// High-level directory entry
+#[derive(Debug)]
 pub(crate) struct DirEntry {
     cluster: ClusterIndex,
     data_length: u64,

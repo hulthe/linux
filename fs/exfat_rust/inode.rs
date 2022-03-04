@@ -3,13 +3,23 @@ use crate::directory::{ExfatDirEntry, ExfatDirEntryReader};
 use crate::fat::FatChainReader;
 use crate::file_ops::DIR_OPERATIONS;
 use crate::inode_dir_operations::DIR_INODE_OPERATIONS;
+use crate::kmem_cache::KMemCache;
+use crate::kmem_cache::PtrInit;
 use crate::math;
-use crate::superblock::SuperBlockInfo;
+use crate::superblock::{SuperBlock, SuperBlockInfo};
 use alloc::vec::Vec;
-use kernel::bindings::{current_time, i_size_read, i_size_write, inode_inc_iversion, set_nlink};
+use core::mem::align_of;
+use core::ptr::{null_mut, NonNull};
+use kernel::bindings::{
+    current_time, i_size_read, i_size_write, inode_inc_iversion, inode_init_once, set_nlink,
+    ___GFP_DIRECT_RECLAIM, ___GFP_IO, ___GFP_KSWAPD_RECLAIM,
+};
 use kernel::Result;
 
 pub(crate) type Inode = kernel::bindings::inode;
+
+// TODO: consider making this not a global. e.g. by putting it in the superblock
+pub(crate) static INODE_CACHE: KMemCache<InodeInfo> = KMemCache::new();
 
 const EXFAT_HASH_BITS: usize = 8;
 const EXFAT_HASH_SIZE: usize = 1 << EXFAT_HASH_BITS;
@@ -78,6 +88,30 @@ pub(crate) struct InodeInfo {
     // struct timespec64 i_crtime;
 }
 
+impl PtrInit for InodeInfo {
+    fn init_ptr(ptr: NonNull<Self>) {
+        assert_eq!(
+            align_of::<Inode>(),
+            align_of::<InodeInfo>(),
+            "cast Inode to InodeInfo"
+        );
+
+        let kernel_inode_ptr: NonNull<Inode> = ptr.cast();
+        unsafe { inode_init_once(kernel_inode_ptr.as_ptr()) };
+        let kernel_inode = unsafe { *kernel_inode_ptr.as_ptr() };
+
+        let inode = InodeInfo {
+            vfs_inode: kernel_inode,
+
+            // zero-init everything
+            entry: 0,
+            start_cluster: 0,
+        };
+
+        unsafe { ptr.as_ptr().write(inode) };
+    }
+}
+
 pub(crate) trait InodeExt {
     fn to_info(&self) -> &InodeInfo;
     fn to_info_mut(&mut self) -> &mut InodeInfo;
@@ -100,16 +134,31 @@ impl InodeExt for Inode {
 // Representing `.` and `..`?
 const EXFAT_MIN_SUBDIR: u32 = 2;
 
+pub(crate) extern "C" fn alloc_inode(_sb: *mut SuperBlock) -> *mut Inode {
+    kernel::pr_info!("alloc_inode called");
+    // bindgen is confused by these constants. // TODO move them
+    const __GFP_RECLAIM: u32 = ___GFP_DIRECT_RECLAIM | ___GFP_KSWAPD_RECLAIM;
+    const GFP_NOFS: u32 = __GFP_RECLAIM | ___GFP_IO;
+    if let Ok(ei) = INODE_CACHE.alloc(GFP_NOFS) {
+        // TODO: initialize locks
+        unsafe { &mut (*ei.as_ptr()).vfs_inode }
+    } else {
+        null_mut()
+    }
+}
+
 // C name `exfat_read_root`
 pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -> Result {
     // TODO: We probably want to use this for something :shrug:
-    let _info: &mut InodeInfo = inode.to_info_mut();
+    let info: &mut InodeInfo = inode.to_info_mut();
+    let inode = &mut info.vfs_inode;
 
     let sb_info = &sbi.info;
     let sb_state = sbi.state.as_mut().unwrap().get_mut();
     let sb = &mut sb_state.sb;
 
     let root_dir = sb_info.boot_sector_info.root_dir;
+    info.start_cluster = root_dir;
     let chain_reader = FatChainReader::new(sb, root_dir);
 
     fn count_oks<T>(bucket: Result<u32>, item: Result<T>) -> Result<u32> {

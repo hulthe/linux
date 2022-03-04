@@ -1,6 +1,8 @@
 //! This module contains variants of primitive types with a platform-independent little- or
 //! bit-endian representation
 
+use core::fmt::{self, Debug};
+
 /// Define conversions to/from this type in its big/little-endian form
 pub trait SpecificEndian
 where
@@ -60,7 +62,7 @@ impl_specific_endian_for_primitive!(isize);
 ///
 /// Use `::from()` or `.into()` to convert between this and the native representation of T
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct LittleEndian<T>
 where
     T: SpecificEndian + Copy + Clone,
@@ -89,6 +91,15 @@ where
     #[inline]
     pub fn to_native(&self) -> T {
         T::from_little_endian(&self.v)
+    }
+}
+
+impl<T> Debug for LittleEndian<T>
+where
+    T: SpecificEndian + Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}_le", self.to_native())
     }
 }
 

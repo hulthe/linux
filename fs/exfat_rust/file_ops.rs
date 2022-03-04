@@ -87,6 +87,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
         }
 
 
+        pr_info!("exfat_iterate start_cluster {}", inode.start_cluster);
         let mut sb_lock_guard = Some(sb_state);
         loop {
             let sb_state = sb_lock_guard
@@ -95,6 +96,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
 
             let entry_index = context.pos as u64 - ITER_POS_FILLED_DOTS;
             context.pos += 1;
+            pr_info!("exfat_iterate next entry {entry_index}");
 
             let reader = DirEntryReader::new(sb_info, &sb_state, inode.start_cluster)?;
             let mut reader = reader.skip(entry_index as usize);
@@ -103,6 +105,8 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
                 None => break,
                 Some(entry) => entry?,
             };
+
+            pr_info!("exfat_iterate reading entry {dir_entry:?}");
 
             // dir_emit() can trigger a page fault, therefore we should drop the lock before
             // calling it

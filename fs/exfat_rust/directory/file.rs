@@ -28,6 +28,7 @@ pub(crate) struct File {
 
 /// The attribute bits of a [File]
 #[repr(C)]
+#[derive(Debug)]
 pub(crate) struct FileAttributes {
     bits: u16le,
 }
