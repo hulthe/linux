@@ -7,3 +7,14 @@ config EXFAT_RUST
 	help
 	  Say Y here to swap exFAT to use the Rust version instead of the C version.
 	default n
+
+config EXFAT_DEFAULT_IOCHARSET
+	string "Default iocharset for exFAT (rust implementation)"
+	default "utf8"
+	depends on EXFAT_RUST
+	help
+	  Set this to the default input/output character set to use for
+	  converting between the encoding that is used for user visible
+	  filenames and the UTF-16 character encoding that the exFAT
+	  filesystem uses.  This can be overridden with the "iocharset" mount
+	  option for the exFAT filesystems.

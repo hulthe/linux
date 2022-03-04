@@ -1,7 +1,17 @@
-// TODO: replace this macre with a trait method
+// TODO: replace this macro with a trait method
 /// Read our SuperBlockInfo from the kernels super_block
 #[macro_export]
 macro_rules! get_exfat_sb_from_sb {
+    ($x: expr) => {{
+        let fs_info = $x.s_fs_info as *mut SuperBlockInfo<'_>;
+        unsafe { &mut *fs_info }
+    }};
+}
+
+// TODO: replace this macro with a trait method
+/// Read our SuperBlockInfo from the kernels super_block
+#[macro_export]
+macro_rules! get_exfat_sb_from_fc {
     ($x: expr) => {{
         let fs_info = $x.s_fs_info as *mut SuperBlockInfo<'_>;
         unsafe { &mut *fs_info }

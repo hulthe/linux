@@ -1,5 +1,7 @@
 use crate::constant_table::ConstantTable;
+use crate::get_exfat_sb_from_fc;
 use crate::superblock::{ExfatErrorMode, SuperBlockInfo};
+use alloc::boxed::Box;
 use core::mem::MaybeUninit;
 use core::ptr::{null, null_mut};
 use kernel::bindings::{
@@ -259,7 +261,7 @@ const UTIME_MASK: u16 = 0o22;
 // TODO: This method returns a result of an i32 where the i32 represents a kernel error number (or 0 if everything went ok).
 // This is done because from_kernel_errno is not public in the kernel crate.
 fn parse_param(fc: &mut FsContext, parameter: &mut FsParameter) -> Result<i32> {
-    let sbi: &mut SuperBlockInfo<'_> = unsafe { &mut *(fc.s_fs_info as *mut SuperBlockInfo<'_>) };
+    let sbi: &mut SuperBlockInfo<'_> = get_exfat_sb_from_fc!(fc);
 
     let mut parse_result: MaybeUninit<FsParseResult> = MaybeUninit::uninit();
     // SAFETY: TODO
@@ -320,9 +322,14 @@ fn parse_param(fc: &mut FsContext, parameter: &mut FsParameter) -> Result<i32> {
                 & UTIME_MASK;
         }
         ExfatOptions::Charset => {
+            // TODO: C code calls exfat_free_iocharset here, should we also do that?
             // SAFETY: Due to opt being Charset, the result should be a string
-            sbi.info.options.iocharset =
-                unsafe { CStr::from_char_ptr(parameter.__bindgen_anon_1.string) }.to_str()?;
+            sbi.info.options.iocharset = unsafe {
+                Box::from_raw(
+                    CStr::from_char_ptr(parameter.__bindgen_anon_1.string) as *const _ as *mut _,
+                )
+            };
+            // unsafe { Box::from_raw(CStr::from_char_ptr(parameter.__bindgen_anon_1.string)) };
             parameter.__bindgen_anon_1.string = null_mut();
         }
         ExfatOptions::Errors => {

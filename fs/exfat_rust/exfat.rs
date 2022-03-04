@@ -60,11 +60,32 @@ static mut FS_TYPE: FileSystemType = FileSystemType {
     i_mutex_dir_key: LockClassKey {},
 };
 
+pub(crate) extern "C" fn exfat_reconfigure(fc: *mut fs_context) -> c_int {
+    todo!("exfat_reconfigure"); // TODO: implement me
+}
+
+pub(crate) extern "C" fn exfat_free(fc: *mut fs_context) {
+    // SAFETY: We expect FC to be there (TODO).
+    let fc = unsafe { &mut *fc };
+    if fc.s_fs_info.is_null() {
+        return;
+    }
+
+    // TODO: Finish later.
+    return;
+
+    let sbi = get_exfat_sb_from_fc!(fc);
+    sbi.info.options.free_iocharset();
+    // kfree(sbi);
+    todo!("exfat_free");
+
+    // let sbi: &mut SuperBlockInfo<'_> = get_exfat_sb_from_fc!(fc);
+}
 static mut CONTEXT_OPS: FsContextOps = FsContextOps {
-    free: None, // TODO
+    free: Some(exfat_free),
     parse_param: Some(exfat_parse_param),
     get_tree: Some(exfat_get_tree),
-    reconfigure: None, // TODO
+    reconfigure: Some(exfat_reconfigure),
 
     // not needed?
     dup: None,
@@ -110,7 +131,7 @@ static mut EXFAT_SOPS: SuperOperations = SuperOperations {
 const EXFAT_MIN_TIMESTAMP_SECS: i64 = 315532800;
 /* Dec 31 GMT 23:59:59 2107 */
 const EXFAT_MAX_TIMESTAMP_SECS: i64 = 4354819199;
-const UTF8: &str = "utf8";
+const UTF8: &[u8] = b"utf8";
 const EXFAT_ROOT_INO: u64 = 1;
 
 extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_types::c_int {
@@ -163,7 +184,7 @@ fn fill_super(sb: &mut SuperBlock) -> Result {
     exfat_hash_init(exfat_sb_info);
 
     let opts: &mut ExfatMountOptions = &mut exfat_sb_info.info.options;
-    if opts.iocharset != UTF8 {
+    if opts.iocharset.as_bytes() != UTF8 {
         opts.utf8 = true;
     } else {
         // TODO: charset stuff!??!?!
