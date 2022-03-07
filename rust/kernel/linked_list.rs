@@ -115,7 +115,7 @@ pub struct List<G: GetLinksWrapped> {
 
 impl<G: GetLinksWrapped> List<G> {
     /// Constructs a new empty linked list.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             list: RawList::new(),
         }

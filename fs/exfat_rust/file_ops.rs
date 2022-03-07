@@ -1,6 +1,6 @@
 use crate::directory::DirEntryReader;
 use crate::from_kernel_result;
-use crate::inode::{iget, InodeExt};
+use crate::inode::{get_inode, Inode, InodeExt};
 use crate::superblock::take_sb;
 use crate::EXFAT_ROOT_INO;
 use core::ptr::null_mut;
@@ -10,7 +10,7 @@ use kernel::bindings::{
     iunique, loff_t, sync_blockdev, DT_DIR, DT_REG,
 };
 use kernel::c_types::c_int;
-use kernel::{pr_err, pr_info};
+use kernel::pr_info;
 
 pub(crate) static mut DIR_OPERATIONS: FileOperations = FileOperations {
     llseek: Some(generic_file_llseek),
@@ -91,7 +91,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
         pr_info!("exfat_iterate start_cluster {}", inode.start_cluster);
         let mut sb_lock_guard = Some(sb_state);
         loop {
-            let sb_state = sb_lock_guard
+            let mut sb_state = sb_lock_guard
                 .take()
                 .unwrap_or_else(|| sb_lock.lock());
 
@@ -107,17 +107,13 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
                 Some(entry) => entry?,
             };
 
-            // SAFETY: TODO
-            let sb = unsafe { &mut *inode.vfs_inode.i_sb };
-            let pos = inode.start_cluster << 32 | dir_entry.entry;
-            let inum = if let Some(node) = iget(sb, inode.start_cluster, dir_entry.entry) {
+            let inum = if let Some(node) = get_inode(sbi, inode.start_cluster, dir_entry.entry) {
                 // SAFETY: TODO
-                // unsafe { iput(node); }
-                // TODO: Change to node.i_ino whenever iget is finished.
-                node
+                unsafe { iput(node as *mut _ as *mut Inode); }
+                node.vfs_inode.i_ino
             } else {
                 // SAFETY: TODO
-                unsafe { iunique(sb, EXFAT_ROOT_INO) }
+                unsafe { iunique(&mut *sb_state.sb, EXFAT_ROOT_INO) }
             };
 
 
@@ -128,6 +124,10 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
             let emit_type = if dir_entry.attrs.directory() {DT_DIR} else {DT_REG};
             // SAFETY: TODO
             let success = unsafe { dir_emit(context, dir_entry.name.as_ptr() as *const i8, dir_entry.name.len() as i32, inum, emit_type) };
+
+            if !success {
+                break;
+            }
         }
 
         Ok(())

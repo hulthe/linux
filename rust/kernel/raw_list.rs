@@ -85,7 +85,7 @@ pub(crate) struct RawList<G: GetLinks> {
 }
 
 impl<G: GetLinks> RawList<G> {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { head: None }
     }
 

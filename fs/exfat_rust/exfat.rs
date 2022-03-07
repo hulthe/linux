@@ -17,13 +17,13 @@ mod math;
 mod superblock;
 mod upcase;
 
-use crate::inode::INODE_CACHE;
+use crate::inode::{InodeExt, INODE_CACHE};
 use constant_table::ConstantTable;
 use core::pin::Pin;
 use core::ptr::null_mut;
 use fs_parameter::{exfat_parse_param, EXFAT_PARAMETERS};
 use kernel::bindings::{
-    d_make_root, file_system_type as FileSystemType, fs_context,
+    __insert_inode_hash, d_make_root, file_system_type as FileSystemType, fs_context,
     fs_context_operations as FsContextOps, fs_parameter_spec, get_tree_bdev,
     hlist_head as HlistHead, inode as Inode, inode_set_iversion, kill_block_super,
     lock_class_key as LockClassKey, new_inode, register_filesystem, request_queue as RequestQueue,
@@ -205,6 +205,9 @@ fn fill_super(sb: &mut SuperBlock) -> Result {
         inode_set_iversion(root_inode, 1);
     }
     inode::read_root_inode(root_inode, exfat_sb_info)?;
+
+    inode::insert_inode(exfat_sb_info, root_inode.to_info_mut());
+    unsafe { __insert_inode_hash(root_inode, root_inode.to_info().unique_num()) };
 
     let sb = &mut exfat_sb_info.state.as_mut().unwrap().get_mut().sb;
     // SAFETY: TODO: The kernel giveth, the kernel taketh away
