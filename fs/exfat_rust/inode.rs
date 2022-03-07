@@ -7,13 +7,13 @@ use crate::kmem_cache::KMemCache;
 use crate::kmem_cache::PtrInit;
 use crate::math;
 use crate::superblock::{SuperBlock, SuperBlockInfo};
-use alloc::vec::Vec;
 use core::mem::align_of;
 use core::ptr::{null_mut, NonNull};
 use kernel::bindings::{
-    current_time, i_size_read, i_size_write, inode_inc_iversion, inode_init_once, set_nlink,
+    current_time, i_size_read, i_size_write, igrab, inode_inc_iversion, inode_init_once, set_nlink,
     ___GFP_DIRECT_RECLAIM, ___GFP_IO, ___GFP_KSWAPD_RECLAIM,
 };
+use kernel::linked_list::{GetLinks, GetLinksWrapped, Links, List, Wrapper};
 use kernel::Result;
 
 pub(crate) type Inode = kernel::bindings::inode;
@@ -26,22 +26,103 @@ const EXFAT_HASH_SIZE: usize = 1 << EXFAT_HASH_BITS;
 
 #[allow(dead_code)]
 pub(crate) struct InodeHashTable {
-    inner: [Vec<Inode>; EXFAT_HASH_SIZE],
+    inner: [List<InodeInfo>; EXFAT_HASH_SIZE],
+}
+
+pub(crate) struct Fuck<T> {
+    ptr: NonNull<T>,
+}
+
+impl<T> Wrapper<T> for Fuck<T> {
+    fn into_pointer(self) -> NonNull<T> {
+        self.ptr
+    }
+
+    unsafe fn from_pointer(ptr: NonNull<T>) -> Self {
+        Self { ptr }
+    }
+
+    fn as_ref(&self) -> &T {
+        unsafe { &*self.ptr.as_ptr() }
+    }
+}
+
+impl GetLinks for InodeInfo {
+    type EntryType = Self;
+
+    fn get_links(data: &Self) -> &Links<Self> {
+        &data.inode_cache_list
+    }
+}
+
+impl GetLinksWrapped for InodeInfo {
+    type Wrapped = Fuck<InodeInfo>;
 }
 
 impl Default for InodeHashTable {
     fn default() -> Self {
-        const EMPTY: Vec<Inode> = Vec::new();
+        const EMPTY: List<InodeInfo> = List::new();
         Self {
             inner: [EMPTY; EXFAT_HASH_SIZE],
         }
     }
 }
 
-pub(crate) fn iget(sb: &mut SuperBlock, cluster_index: u32, dir_index: u32) -> Option<u64> {
-    // TODO: Implement, should return an inode
-    todo!("iget TODO Implement");
-    return Some(0);
+pub(crate) fn inode_unique_num(cluster: u32, entry: u32) -> u64 {
+    (entry as u64) << u32::BITS | cluster as u64
+}
+
+pub(crate) fn get_inode(
+    sbi: &SuperBlockInfo<'_>,
+    cluster_index: u32,
+    dir_index: u32,
+) -> Option<&'static mut InodeInfo> {
+    let hashtable = sbi.inode_hashtable.lock();
+    let hashtable = &hashtable.inner;
+
+    // TODO: actually hash the key
+    let key = inode_unique_num(cluster_index, dir_index);
+    let hash = key;
+
+    let bucket = &hashtable[hash as usize % hashtable.len()];
+
+    let mut cursor = bucket.cursor_front();
+
+    let key = (cluster_index, dir_index);
+    while let Some(entry) = cursor.current() {
+        cursor.move_next();
+
+        let entry_key = (entry.start_cluster, entry.entry);
+        if entry_key == key {
+            let inode = unsafe { igrab(entry as *const _ as *mut Inode) };
+            let inode = inode as *mut InodeInfo;
+
+            // if igrab returns null, the C version just continues the loop.
+            // that doesn't seem like the correct behaviour.
+            // TODO: figure out if we can return regardless.
+            // return unsafe { inode.as_mut() };
+            if let Some(inode) = unsafe { inode.as_mut() } {
+                return Some(inode);
+            }
+        }
+    }
+
+    None
+}
+
+pub(crate) fn insert_inode(sbi: &SuperBlockInfo<'_>, inode: &mut InodeInfo) {
+    let mut hashtable = sbi.inode_hashtable.lock();
+    let hashtable = &mut hashtable.inner;
+
+    // TODO: actually hash the key
+    let key = inode_unique_num(inode.start_cluster, inode.entry);
+    let hash = key;
+
+    let bucket = &mut hashtable[hash as usize % hashtable.len()];
+
+    bucket.push_back(Fuck {
+        ptr: NonNull::new(inode).unwrap(),
+    });
 }
 
 #[repr(C)]
@@ -92,6 +173,14 @@ pub(crate) struct InodeInfo {
     // struct inode vfs_inode;
     // /* File creation time */
     // struct timespec64 i_crtime;
+    inode_cache_list: Links<Self>,
+}
+
+impl InodeInfo {
+    /// Get the unique number that identifies this Inode
+    pub(crate) fn unique_num(&self) -> u64 {
+        inode_unique_num(self.start_cluster, self.entry)
+    }
 }
 
 impl PtrInit for InodeInfo {
@@ -112,6 +201,8 @@ impl PtrInit for InodeInfo {
             // zero-init everything
             entry: 0,
             start_cluster: 0,
+
+            inode_cache_list: Links::new(),
         };
 
         unsafe { ptr.as_ptr().write(inode) };
