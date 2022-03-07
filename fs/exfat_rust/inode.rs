@@ -38,6 +38,12 @@ impl Default for InodeHashTable {
     }
 }
 
+pub(crate) fn iget(sb: &mut SuperBlock, cluster_index: u32, dir_index: u32) -> Option<u64> {
+    // TODO: Implement, should return an inode
+    todo!("iget TODO Implement");
+    return Some(0);
+}
+
 #[repr(C)]
 pub(crate) struct InodeInfo {
     // SAFETY: vfs_inode MUST BE at the top of this struct,

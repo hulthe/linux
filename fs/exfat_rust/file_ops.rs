@@ -1,12 +1,13 @@
 use crate::directory::DirEntryReader;
 use crate::from_kernel_result;
-use crate::inode::InodeExt;
+use crate::inode::{iget, InodeExt};
 use crate::superblock::take_sb;
+use crate::EXFAT_ROOT_INO;
 use core::ptr::null_mut;
 use kernel::bindings::{
     __generic_file_fsync, blkdev_issue_flush, dir_context as DirContext, dir_emit_dots,
-    file as File, file_operations as FileOperations, generic_file_llseek, generic_read_dir, loff_t,
-    sync_blockdev,
+    file as File, file_operations as FileOperations, generic_file_llseek, generic_read_dir, iput,
+    iunique, loff_t, sync_blockdev,
 };
 use kernel::c_types::c_int;
 use kernel::pr_info;
@@ -106,15 +107,20 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
                 Some(entry) => entry?,
             };
 
-            pr_info!("exfat_iterate reading entry {dir_entry:?}");
+            // SAFETY: TODO
+            let sb = unsafe { &mut *inode.vfs_inode.i_sb };
+            // let pos = inode.start_cluster << 32 | dir_entry.entry;
+            let inum = if let Some(node) = iget(sb, inode.start_cluster, dir_entry.entry) {
+                // unsafe { iput(node); }
+                // TODO: Change to node.i_ino whenever iget is finished.
+                node
+            } else {
+                unsafe { iunique(sb, EXFAT_ROOT_INO) }
+            };
 
             // dir_emit() can trigger a page fault, therefore we should drop the lock before
             // calling it
-
-            // TODO: exfat_iget to aquire an inode
-
             let _ = sb_state;
-
             // TODO: dir_emit
         }
 
