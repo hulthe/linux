@@ -5,10 +5,12 @@ use kernel::endian::u16le;
 
 // TODO: expand on this type
 #[repr(C)]
+#[derive(Debug)]
 pub(crate) struct TimeStamp([u8; 4]);
 
 /// A File directory entry
 #[repr(C)]
+#[derive(Debug)]
 pub(crate) struct File {
     _entry_type: u8,
     pub(crate) secondary_count: u8,

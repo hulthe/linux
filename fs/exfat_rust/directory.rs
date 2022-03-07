@@ -14,10 +14,13 @@ use allocation_bitmap::AllocationBitmap;
 use core::iter::FusedIterator;
 use file::{File, FileAttributes};
 use file_name::FileName;
+use kernel::pr_err;
+use kernel::prelude::*;
 use kernel::{Error, Result};
 use stream_extension::StreamExtension;
 use upcase::UpCaseTable;
 
+#[derive(Debug)]
 pub(crate) struct ToDo;
 
 /// The size of a directory  in bytes
@@ -38,6 +41,7 @@ const ENTRY_TYPE_NAME: u8 = 0xC1;
 const ENTRY_TYPE_ACL: u8 = 0xC2;
 
 /// All possible raw exfat directory entries
+#[derive(Debug)]
 pub(crate) enum ExfatDirEntry {
     // Critical primary
     AllocationBitmap(AllocationBitmap),
@@ -104,19 +108,23 @@ impl Iterator for ExfatDirEntryReader<'_> {
                 AllocationBitmap::from_bytes(buf),
             ))),
             ENTRY_TYPE_FILE => Some(Ok(ExfatDirEntry::File(File::from_bytes(buf)))),
+            ENTRY_TYPE_STREAM => Some(Ok(ExfatDirEntry::StreamExtension(
+                StreamExtension::from_bytes(buf),
+            ))),
+            ENTRY_TYPE_NAME => Some(Ok(ExfatDirEntry::FileName(FileName::from_bytes(buf)))),
             _ => self.next(), // TODO: remove this and implement remaining directory entries
         }
     }
 }
 
 /// High-level directory entry
-#[derive(Debug)]
 pub(crate) struct DirEntry {
     cluster: ClusterIndex,
     data_length: u64,
     pub(crate) entry: u32,
+    pub(crate) name: String,
 
-    attrs: FileAttributes,
+    pub(crate) attrs: FileAttributes,
 }
 
 pub(crate) struct DirEntryReader<'a> {
@@ -159,9 +167,19 @@ impl Iterator for DirEntryReader<'_> {
         };
 
         let stream_ext = match self.entries.next() {
-            Some(Err(e)) => return Some(Err(e)),
+            Some(Err(e)) => {
+                return {
+                    pr_err!("Failed to retrieve next DirEntry, err {:?}", e);
+                    Some(Err(e))
+                }
+            }
             Some(Ok(ExfatDirEntry::StreamExtension(entry))) => entry,
-            _ => return Some(Err(Error::EIO)), // TODO: not sure which error is appropriate here
+            v => {
+                return {
+                    pr_err!("Unknown entry: {:?}", v);
+                    Some(Err(Error::EIO)) // TODO: not sure which error is appropriate here
+                };
+            }
         };
 
         let name_length = stream_ext.name_length as usize;
@@ -173,6 +191,7 @@ impl Iterator for DirEntryReader<'_> {
 
         // one FileName contains up to 15 UTF-16 code points
         let number_of_file_name_entries = (name_length - 1) / 15 + 1;
+        let mut name_buffer: Vec<u8> = Vec::new();
 
         for _ in 1..=number_of_file_name_entries {
             let file_name_entry = match self.entries.next() {
@@ -182,14 +201,29 @@ impl Iterator for DirEntryReader<'_> {
             };
 
             // TODO: save file name in a buffer somewhere idk
-            let _ = file_name_entry;
+            match name_buffer.try_extend_from_slice(&file_name_entry.file_name) {
+                Ok(()) => {}
+                Err(err) => {
+                    pr_err!("Failed to append to namebuffer, err: {}", err);
+                    return Some(Err(Error::EINVAL)); // TODO: Not sure about error again...
+                }
+            }
         }
+
+        let name = match String::from_utf8(name_buffer) {
+            Ok(v) => v,
+            Err(err) => {
+                pr_err!("Failed to convert namebuffer to utf8, err {}", err);
+                return Some(Err(Error::EINVAL)); // TODO: Not sure about error...
+            }
+        };
 
         let dir_entry = DirEntry {
             cluster: stream_ext.first_cluster.to_native(),
             data_length: stream_ext.data_length.to_native(),
             attrs: file.file_attributes,
             entry: self.index,
+            name: name,
         };
         self.index += 1;
         Some(Ok(dir_entry))

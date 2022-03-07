@@ -3,6 +3,7 @@ use kernel::endian::{u32le, u64le};
 
 /// An Upcase Table directory entry
 #[repr(C)]
+#[derive(Debug)]
 pub(crate) struct UpCaseTable {
     _entry_type: u8,
     _reserved1: [u8; 3],

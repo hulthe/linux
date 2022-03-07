@@ -5,12 +5,12 @@ use crate::superblock::take_sb;
 use crate::EXFAT_ROOT_INO;
 use core::ptr::null_mut;
 use kernel::bindings::{
-    __generic_file_fsync, blkdev_issue_flush, dir_context as DirContext, dir_emit_dots,
+    __generic_file_fsync, blkdev_issue_flush, dir_context as DirContext, dir_emit, dir_emit_dots,
     file as File, file_operations as FileOperations, generic_file_llseek, generic_read_dir, iput,
-    iunique, loff_t, sync_blockdev,
+    iunique, loff_t, sync_blockdev, DT_DIR, DT_REG,
 };
 use kernel::c_types::c_int;
-use kernel::pr_info;
+use kernel::{pr_err, pr_info};
 
 pub(crate) static mut DIR_OPERATIONS: FileOperations = FileOperations {
     llseek: Some(generic_file_llseek),
@@ -109,19 +109,25 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
 
             // SAFETY: TODO
             let sb = unsafe { &mut *inode.vfs_inode.i_sb };
-            // let pos = inode.start_cluster << 32 | dir_entry.entry;
+            let pos = inode.start_cluster << 32 | dir_entry.entry;
             let inum = if let Some(node) = iget(sb, inode.start_cluster, dir_entry.entry) {
+                // SAFETY: TODO
                 // unsafe { iput(node); }
                 // TODO: Change to node.i_ino whenever iget is finished.
                 node
             } else {
+                // SAFETY: TODO
                 unsafe { iunique(sb, EXFAT_ROOT_INO) }
             };
+
 
             // dir_emit() can trigger a page fault, therefore we should drop the lock before
             // calling it
             let _ = sb_state;
-            // TODO: dir_emit
+
+            let emit_type = if dir_entry.attrs.directory() {DT_DIR} else {DT_REG};
+            // SAFETY: TODO
+            let success = unsafe { dir_emit(context, dir_entry.name.as_ptr() as *const i8, dir_entry.name.len() as i32, inum, emit_type) };
         }
 
         Ok(())
