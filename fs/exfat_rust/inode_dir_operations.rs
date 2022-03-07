@@ -1,6 +1,7 @@
 use crate::charsets::{UTF16String, MAX_CHARSET_SIZE, MAX_NAME_LENGTH};
 use crate::directory::{DirEntry, DirEntryReader};
 use crate::inode::InodeExt;
+use crate::superblock::take_sb;
 use crate::superblock::SuperBlockInfo;
 use kernel::bindings::{
     dentry as DEntry, inode as Inode, inode_operations as InodeOperations, umode_t,
@@ -82,8 +83,79 @@ fn resolve_path(sbi: &SuperBlockInfo<'_>, path: String) -> Result<UTF16String> {
     return Ok(utf16);
 }
 
-extern "C" fn exfat_lookup(_dir: *mut Inode, _dentry: *mut DEntry, _flags: c_uint) -> *mut DEntry {
-    todo!("exfat_lookup"); // TODO: implement me
+extern "C" fn exfat_lookup(dir: *mut Inode, _dentry: *mut DEntry, _flags: c_uint) -> *mut DEntry {
+    let inode = unsafe { &mut *dir };
+    let inode = inode.to_info_mut();
+
+    let sb = take_sb(&inode.vfs_inode.i_sb);
+
+    let sb_state = sb.state.as_ref().unwrap().lock();
+
+    // TODO: vvvvvvvvvvvvvvvvvvvv
+    //	err = exfat_find(dir, &dentry->d_name, &info);
+    //	if (err) {
+    //		if (err == -ENOENT) {
+    //			inode = NULL;
+    //			goto out;
+    //		}
+    //		goto unlock;
+    //	}
+    //
+    //	i_pos = exfat_make_i_pos(&info);
+    //	inode = exfat_build_inode(sb, &info, i_pos);
+    //	err = PTR_ERR_OR_ZERO(inode);
+    //	if (err)
+    //		goto unlock;
+    //
+    //	i_mode = inode->i_mode;
+    //	alias = d_find_alias(inode);
+    //
+    //	/*
+    //	 * Checking "alias->d_parent == dentry->d_parent" to make sure
+    //	 * FS is not corrupted (especially double linked dir).
+    //	 */
+    //	if (alias && alias->d_parent == dentry->d_parent &&
+    //			!exfat_d_anon_disconn(alias)) {
+    //
+    //		/*
+    //		 * Unhashed alias is able to exist because of revalidate()
+    //		 * called by lookup_fast. You can easily make this status
+    //		 * by calling create and lookup concurrently
+    //		 * In such case, we reuse an alias instead of new dentry
+    //		 */
+    //		if (d_unhashed(alias)) {
+    //			WARN_ON(alias->d_name.hash_len !=
+    //				dentry->d_name.hash_len);
+    //			exfat_info(sb, "rehashed a dentry(%p) in read lookup",
+    //				   alias);
+    //			d_drop(dentry);
+    //			d_rehash(alias);
+    //		} else if (!S_ISDIR(i_mode)) {
+    //			/*
+    //			 * This inode has non anonymous-DCACHE_DISCONNECTED
+    //			 * dentry. This means, the user did ->lookup() by an
+    //			 * another name (longname vs 8.3 alias of it) in past.
+    //			 *
+    //			 * Switch to new one for reason of locality if possible.
+    //			 */
+    //			d_move(alias, dentry);
+    //		}
+    //		iput(inode);
+    //		mutex_unlock(&EXFAT_SB(sb)->s_lock);
+    //		return alias;
+    //	}
+    //	dput(alias);
+    //out:
+    //	mutex_unlock(&EXFAT_SB(sb)->s_lock);
+    //	if (!inode)
+    //		exfat_d_version_set(dentry, inode_query_iversion(dir));
+    //
+    //	return d_splice_alias(inode, dentry);
+    //unlock:
+    //	mutex_unlock(&EXFAT_SB(sb)->s_lock);
+    //	return ERR_PTR(err);
+
+    todo!("exfat_lookup: {:x}", unsafe { (*dir).i_ino }); // TODO: implement me
 }
 
 extern "C" fn exfat_mkdir(

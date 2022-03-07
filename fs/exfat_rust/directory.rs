@@ -15,9 +15,8 @@ use core::iter::FusedIterator;
 use core::ops::Range;
 use file::{File, FileAttributes};
 use file_name::FileName;
-use kernel::pr_err;
 use kernel::prelude::*;
-use kernel::{Error, Result};
+use kernel::{pr_err, Error, Result};
 use stream_extension::StreamExtension;
 use upcase::UpCaseTable;
 
@@ -134,7 +133,9 @@ pub(crate) struct DirEntry {
 
 pub(crate) struct DirEntryReader<'a> {
     entries: ExfatDirEntryReader<'a>,
-    /// The index of the next DirEntry we will read when caling next.
+
+    /// The index of the next DirEntry we will read when calling next.
+    // TODO: replace this with ExFatDirEntry index
     index: u32,
 }
 
@@ -173,44 +174,45 @@ impl Iterator for DirEntryReader<'_> {
 
         let stream_ext = match self.entries.next() {
             Some(Err(e)) => {
-                return {
-                    pr_err!("Failed to retrieve next DirEntry, err {:?}", e);
-                    Some(Err(e))
-                }
+                pr_err!("Failed to retrieve next DirEntry, err {:?}", e);
+                return Some(Err(e));
             }
             Some(Ok(ExfatDirEntry::StreamExtension(entry))) => entry,
             v => {
-                return {
-                    pr_err!("Unknown entry: {:?}", v);
-                    Some(Err(Error::EIO)) // TODO: not sure which error is appropriate here
-                };
+                pr_err!("Unknown entry: {:?}", v);
+                return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
             }
         };
 
         let name_length = stream_ext.name_length as usize;
 
-        let mut name = String::new();
-        if let Err(e) = name.try_reserve(name_length * 2 /* File name is UTF16 */) {
+        // one FileName contains up to 15 UTF-16 code points
+        let number_of_file_name_entries = (name_length - 1) / 15 + 1;
+
+        let mut name_buffer: Vec<u8> = Vec::new();
+        if let Err(e) = name_buffer.try_reserve(name_length) {
+            pr_err!("Failed to allocate namebuffer");
             return Some(Err(e.into()));
         }
 
-        // one FileName contains up to 15 UTF-16 code points
-        let number_of_file_name_entries = (name_length - 1) / 15 + 1;
-        let mut name_buffer: Vec<u8> = Vec::new();
-
-        for _ in 1..=number_of_file_name_entries {
+        for _ in 0..number_of_file_name_entries {
             let file_name_entry = match self.entries.next() {
                 Some(Err(e)) => return Some(Err(e)),
                 Some(Ok(ExfatDirEntry::FileName(entry))) => entry,
                 _ => return Some(Err(Error::EIO)), // TODO: not sure which error is appropriate here
             };
 
-            // TODO: save file name in a buffer somewhere idk
-            match name_buffer.try_extend_from_slice(&file_name_entry.file_name) {
-                Ok(()) => {}
-                Err(err) => {
-                    pr_err!("Failed to append to namebuffer, err: {}", err);
-                    return Some(Err(Error::EINVAL)); // TODO: Not sure about error again...
+            for c in file_name_entry.chars() {
+                let c = match c {
+                    Err(_e) => return Some(Err(Error::EIO)), // TODO: not sure which error
+                    Ok(c) => c,
+                };
+
+                let mut utf8_buf = [0u8; 4];
+                let encoded = c.encode_utf8(&mut utf8_buf);
+                if let Err(e) = name_buffer.try_extend_from_slice(encoded.as_bytes()) {
+                    pr_err!("Failed to append to namebuffer");
+                    return Some(Err(e.into()));
                 }
             }
         }
@@ -228,7 +230,7 @@ impl Iterator for DirEntryReader<'_> {
             data_length: stream_ext.data_length.to_native(),
             attrs: file.file_attributes,
             entry: self.index,
-            name: name,
+            name,
         };
         self.index += 1;
         Some(Ok(dir_entry))

@@ -1,5 +1,5 @@
 use crate::superblock::SbInfo;
-use core::mem::{size_of, transmute};
+use core::mem::transmute;
 use kernel::bindings::{S_IFDIR, S_IFREG};
 use kernel::endian::u16le;
 
@@ -38,9 +38,7 @@ pub(crate) struct FileAttributes {
 impl File {
     /// Convert to this type from the on-disk representation of a File
     pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
-        debug_assert_eq!(bytes.len(), size_of::<Self>());
-
-        // SAFETY: File is repr(C) and has the same size as the byte array
+        // SAFETY: File is repr(C), and consists only of integers.
         unsafe { transmute(bytes) }
     }
 }
