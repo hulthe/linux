@@ -2,6 +2,7 @@ use core::mem::{size_of, transmute};
 use kernel::endian::{u16le, u32le, u64le};
 
 #[repr(C)]
+#[derive(Debug)]
 pub(crate) struct StreamExtension {
     _entry_type: u8,
 
