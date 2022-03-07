@@ -1,4 +1,4 @@
-use core::mem::{size_of, transmute};
+use core::mem::transmute;
 use kernel::endian::{u32le, u64le};
 
 #[repr(C)]
@@ -14,9 +14,7 @@ pub(crate) struct AllocationBitmap {
 impl AllocationBitmap {
     /// Convert to this type from the on-disk representation of an AllocationBitmap
     pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
-        debug_assert_eq!(bytes.len(), size_of::<Self>());
-
-        // SAFETY: File is repr(C) and has the same size as the byte array
+        // SAFETY: File is repr(C), and consists only of integers.
         unsafe { transmute(bytes) }
     }
 }

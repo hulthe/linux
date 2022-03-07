@@ -19,7 +19,6 @@ mod superblock;
 mod upcase;
 
 use crate::inode::{InodeExt, INODE_CACHE};
-use constant_table::ConstantTable;
 use core::pin::Pin;
 use core::ptr::null_mut;
 use fs_parameter::{exfat_parse_param, EXFAT_PARAMETERS};
