@@ -102,16 +102,16 @@ extern "C" fn exfat_get_tree(fc: *mut fs_context) -> c_types::c_int {
 
 static mut EXFAT_SOPS: SuperOperations = SuperOperations {
     alloc_inode: Some(inode::alloc_inode),
-    free_inode: None,   // TODO
-    write_inode: None,  // TODO
-    evict_inode: None,  // TODO
-    put_super: None,    // TODO
-    sync_fs: None,      // TODO
-    statfs: None,       // TODO
-    show_options: None, // TODO
+    free_inode: None,    // TODO
+    write_inode: None,   // TODO
+    evict_inode: None,   // TODO
+    put_super: None,     // TODO
+    sync_fs: None,       // TODO
+    statfs: None,        // TODO
+    show_options: None,  // TODO
+    destroy_inode: None, // TODO (Not in C version but we'll need it to ensure that our destructor runs properly)
 
     // Not implemented in C version
-    destroy_inode: None,
     dirty_inode: None,
     drop_inode: None,
     freeze_super: None,

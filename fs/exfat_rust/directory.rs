@@ -114,12 +114,15 @@ impl Iterator for ExfatDirEntryReader<'_> {
 pub(crate) struct DirEntry {
     cluster: ClusterIndex,
     data_length: u64,
+    pub(crate) entry: u32,
 
     attrs: FileAttributes,
 }
 
 pub(crate) struct DirEntryReader<'a> {
     entries: ExfatDirEntryReader<'a>,
+    /// The index of the next DirEntry we will read when caling next.
+    index: u32,
 }
 
 impl<'a> DirEntryReader<'a> {
@@ -130,7 +133,12 @@ impl<'a> DirEntryReader<'a> {
     ) -> Result<Self> {
         Ok(Self {
             entries: ExfatDirEntryReader::new(sb_info, sb_state, index)?,
+            index: 0,
         })
+    }
+
+    pub(crate) fn get_curr_index(&self) -> u32 {
+        self.index
     }
 }
 
@@ -177,10 +185,13 @@ impl Iterator for DirEntryReader<'_> {
             let _ = file_name_entry;
         }
 
-        Some(Ok(DirEntry {
+        let dir_entry = DirEntry {
             cluster: stream_ext.first_cluster.to_native(),
             data_length: stream_ext.data_length.to_native(),
             attrs: file.file_attributes,
-        }))
+            entry: self.index,
+        };
+        self.index += 1;
+        Some(Ok(dir_entry))
     }
 }
