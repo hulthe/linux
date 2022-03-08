@@ -1,8 +1,14 @@
+use crate::charsets::{UTF16String, MAX_CHARSET_SIZE, MAX_NAME_LENGTH};
+use crate::directory::{DirEntry, DirEntryReader};
+use crate::inode::{InodeExt, InodeInfo};
+use crate::superblock::SuperBlockInfo;
 use kernel::bindings::{
     dentry as DEntry, inode as Inode, inode_operations as InodeOperations, umode_t,
     user_namespace as UserNamespace,
 };
 use kernel::c_types::{c_int, c_uint};
+use kernel::prelude::*;
+use kernel::Error;
 
 extern "C" fn exfat_create(
     _mnt_userns: *mut UserNamespace,
@@ -12,6 +18,46 @@ extern "C" fn exfat_create(
     _excl: bool,
 ) -> c_int {
     todo!("exfat_create"); // TODO: implement me
+}
+
+// exfat_find in namei.c
+fn find_file(sbi: &mut SuperBlockInfo<'_>, inode: Inode, name: String) -> Result<DirEntry> {
+    if name.is_empty() {
+        return Err(Error::ENOENT);
+    }
+
+    let sb_info = &sbi.info;
+    let sb_lock = sbi.state.as_ref().unwrap();
+    let sb_state = sb_lock.lock();
+    let inode = inode.to_info();
+
+    let reader = DirEntryReader::new(sb_info, &sb_state, inode.start_cluster)?;
+
+    todo!("Implement");
+}
+
+/// Lookup a path in the given inode, if it exists return Ok with the UTF16 version of the name.
+// exfat_resolve_path_for_lookup in namei.c
+fn resolve_path(
+    sb_info: &SuperBlockInfo<'_>,
+    inode: &mut InodeInfo,
+    path: String,
+) -> Result<UTF16String> {
+    // Remove trailing periods.
+    let stripped = path.trim_end_matches(".");
+    if stripped.is_empty() {
+        return Err(Error::ENOENT);
+    }
+
+    if path.len() > (MAX_NAME_LENGTH * MAX_CHARSET_SIZE) {
+        return Err(Error::ENAMETOOLONG);
+    }
+
+    // Here we should strip all leading spaces :
+    // "MS windows 7" supports leading spaces,
+    // so we should skip these for compatability reasons.
+
+    let utf16 = UTF16String::from_nls(sb_info, &path, false);
 }
 
 extern "C" fn exfat_lookup(_dir: *mut Inode, _dentry: *mut DEntry, _flags: c_uint) -> *mut DEntry {
