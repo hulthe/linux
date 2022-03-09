@@ -1,6 +1,6 @@
 use crate::charsets::{UTF16String, MAX_CHARSET_SIZE, MAX_NAME_LENGTH};
 use crate::directory::{DirEntry, DirEntryReader};
-use crate::inode::{InodeExt, InodeInfo};
+use crate::inode::InodeExt;
 use crate::superblock::SuperBlockInfo;
 use kernel::bindings::{
     dentry as DEntry, inode as Inode, inode_operations as InodeOperations, umode_t,
@@ -21,35 +21,48 @@ extern "C" fn exfat_create(
 }
 
 // exfat_find in namei.c
-fn find_file(sbi: &mut SuperBlockInfo<'_>, inode: Inode, name: String) -> Result<DirEntry> {
+fn find(sbi: &mut SuperBlockInfo<'_>, inode: Inode, name: String) -> Result<DirEntry> {
     if name.is_empty() {
         return Err(Error::ENOENT);
     }
 
+    let utf16_name = resolve_path(sbi, name)?;
+
+    todo!("Implement find_file");
+}
+
+// exfat_find_dir_entry in dir.c
+fn find_dir(sbi: &mut SuperBlockInfo<'_>, inode: Inode, name: String) -> Result<DirEntry> {
+    let inode = inode.to_info();
     let sb_info = &sbi.info;
     let sb_lock = sbi.state.as_ref().unwrap();
     let sb_state = sb_lock.lock();
-    let inode = inode.to_info();
 
     let reader = DirEntryReader::new(sb_info, &sb_state, inode.start_cluster)?;
 
-    todo!("Implement");
+    // TODO: Add name hashing optimization & hint optimization.
+
+    for entry in reader {
+        let entry = entry?;
+
+        if entry.name == name {
+            return Ok(entry);
+        }
+    }
+
+    Err(Error::ENOENT)
 }
 
 /// Lookup a path in the given inode, if it exists return Ok with the UTF16 version of the name.
 // exfat_resolve_path_for_lookup in namei.c
-fn resolve_path(
-    sb_info: &SuperBlockInfo<'_>,
-    inode: &mut InodeInfo,
-    path: String,
-) -> Result<UTF16String> {
+fn resolve_path(sbi: &SuperBlockInfo<'_>, path: String) -> Result<UTF16String> {
     // Remove trailing periods.
     let stripped = path.trim_end_matches(".");
     if stripped.is_empty() {
         return Err(Error::ENOENT);
     }
 
-    if path.len() > (MAX_NAME_LENGTH * MAX_CHARSET_SIZE) {
+    if path.len() > (MAX_NAME_LENGTH as usize * MAX_CHARSET_SIZE as usize) {
         return Err(Error::ENAMETOOLONG);
     }
 
@@ -57,7 +70,16 @@ fn resolve_path(
     // "MS windows 7" supports leading spaces,
     // so we should skip these for compatability reasons.
 
-    let utf16 = UTF16String::from_nls(sb_info, &path, false);
+    // File name conversion
+    let utf16: UTF16String = UTF16String::from_nls(&sbi.info, &path, false)?;
+
+    if utf16.0.len() == 0 {
+        return Err(Error::EINVAL);
+    }
+
+    // TODO: Lossy handling
+
+    return Ok(utf16);
 }
 
 extern "C" fn exfat_lookup(_dir: *mut Inode, _dentry: *mut DEntry, _flags: c_uint) -> *mut DEntry {
