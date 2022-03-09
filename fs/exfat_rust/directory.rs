@@ -15,12 +15,13 @@ use core::iter::FusedIterator;
 use core::ops::Range;
 use file::{File, FileAttributes};
 use file_name::FileName;
+use kernel::bindings::timespec64;
 use kernel::prelude::*;
 use kernel::{pr_err, Error, Result};
 use stream_extension::StreamExtension;
 use upcase::UpCaseTable;
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct ToDo;
 
 /// The size of a directory  in bytes
@@ -41,9 +42,20 @@ const ENTRY_TYPE_STREAM: u8 = 0xC0;
 const ENTRY_TYPE_NAME: u8 = 0xC1;
 const ENTRY_TYPE_ACL: u8 = 0xC2;
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ExFatDirEntry {
+    /// The start of the cluster chain with the directory set which contains this entry
+    pub(crate) cluster: u32,
+
+    /// The index of this entry within the directory set
+    pub(crate) index: u32,
+
+    pub(crate) kind: ExFatDirEntryKind,
+}
+
 /// All possible raw exfat directory entries
-#[derive(Debug)]
-pub(crate) enum ExfatDirEntry {
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ExFatDirEntryKind {
     Deleted,
 
     // Critical primary
@@ -65,12 +77,15 @@ pub(crate) enum ExfatDirEntry {
     VendorAllocation(ToDo), // TODO
 }
 
-pub(crate) struct ExfatDirEntryReader<'a> {
+pub(crate) struct ExFatDirEntryReader<'a> {
     chain: ClusterChain<'a>,
     fused: bool,
+
+    /// Tracks indices of the ExFatDirEntry:s we're reading
+    index: u32,
 }
 
-impl<'a> ExfatDirEntryReader<'a> {
+impl<'a> ExFatDirEntryReader<'a> {
     pub(crate) fn new(
         sb_info: &'a SbInfo,
         sb_state: &'a SbState<'a>,
@@ -79,18 +94,22 @@ impl<'a> ExfatDirEntryReader<'a> {
         Ok(Self {
             chain: ClusterChain::new(sb_info, sb_state, index)?,
             fused: false,
+            index: 0,
         })
     }
 }
 
-impl FusedIterator for ExfatDirEntryReader<'_> {}
-impl Iterator for ExfatDirEntryReader<'_> {
-    type Item = Result<ExfatDirEntry>;
+impl FusedIterator for ExFatDirEntryReader<'_> {}
+impl Iterator for ExFatDirEntryReader<'_> {
+    type Item = Result<ExFatDirEntry>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.fused {
             return None;
         }
+
+        let index = self.index;
+        self.index += 1;
 
         let mut buf = [0u8; 32];
 
@@ -101,42 +120,61 @@ impl Iterator for ExfatDirEntryReader<'_> {
 
         let entry_type = buf[0];
 
-        match entry_type {
+        use ExFatDirEntryKind as Entry;
+        let kind = match entry_type {
             ENTRY_TYPE_END_OF_DIRECTORY => {
+                // we have reached the end of the directory set
                 self.fused = true;
-                None
+                return None;
             }
-            t if ENTRY_TYPE_DELETED.contains(&t) => Some(Ok(ExfatDirEntry::Deleted)),
-            ENTRY_TYPE_UPCASE => Some(Ok(ExfatDirEntry::UpCaseTable(UpCaseTable::from_bytes(buf)))),
-            ENTRY_TYPE_BITMAP => Some(Ok(ExfatDirEntry::AllocationBitmap(
-                AllocationBitmap::from_bytes(buf),
-            ))),
-            ENTRY_TYPE_FILE => Some(Ok(ExfatDirEntry::File(File::from_bytes(buf)))),
-            ENTRY_TYPE_STREAM => Some(Ok(ExfatDirEntry::StreamExtension(
-                StreamExtension::from_bytes(buf),
-            ))),
-            ENTRY_TYPE_NAME => Some(Ok(ExfatDirEntry::FileName(FileName::from_bytes(buf)))),
-            _ => self.next(), // TODO: remove this and implement remaining directory entries
-        }
+            t if ENTRY_TYPE_DELETED.contains(&t) => Entry::Deleted,
+            ENTRY_TYPE_UPCASE => Entry::UpCaseTable(UpCaseTable::from_bytes(buf)),
+            ENTRY_TYPE_BITMAP => Entry::AllocationBitmap(AllocationBitmap::from_bytes(buf)),
+            ENTRY_TYPE_FILE => Entry::File(File::from_bytes(buf)),
+            ENTRY_TYPE_STREAM => Entry::StreamExtension(StreamExtension::from_bytes(buf)),
+            ENTRY_TYPE_NAME => Entry::FileName(FileName::from_bytes(buf)),
+            _ => {
+                pr_info!("ExFatDirEntryReader: skipping unknown directory entry: {entry_type:x}");
+                return self.next(); // TODO: remove this and implement remaining directory entries
+            }
+        };
+
+        Some(Ok(ExFatDirEntry {
+            cluster: self.chain.start_cluster(),
+            index,
+            kind,
+        }))
     }
 }
 
 /// High-level directory entry
 pub(crate) struct DirEntry {
-    cluster: ClusterIndex,
-    data_length: u64,
-    pub(crate) entry: u32,
+    /// The start of the cluster chain which contains the data for this DirEntry
+    pub(crate) data_cluster: ClusterIndex,
+
+    /// The length of the data in the cluster chain
+    pub(crate) data_length: u64,
+
+    /// The start of the cluster chain which has the directory set that contains this entry.
+    pub(crate) cluster: u32,
+
+    /// The index of this entry in the directory set
+    ///
+    /// Specifically, the index of the ExFatDirEntry File that marks the start of this DirEntry
+    pub(crate) index: u32,
+
     pub(crate) name: String,
 
     pub(crate) attrs: FileAttributes,
+
+    pub(crate) create_time: timespec64,
+    pub(crate) access_time: timespec64,
+    pub(crate) modified_time: timespec64,
 }
 
 pub(crate) struct DirEntryReader<'a> {
-    entries: ExfatDirEntryReader<'a>,
-
-    /// The index of the next DirEntry we will read when calling next.
-    // TODO: replace this with ExFatDirEntry index
-    index: u32,
+    sb_info: &'a SbInfo,
+    entries: ExFatDirEntryReader<'a>,
 }
 
 impl<'a> DirEntryReader<'a> {
@@ -146,13 +184,9 @@ impl<'a> DirEntryReader<'a> {
         index: ClusterIndex,
     ) -> Result<Self> {
         Ok(Self {
-            entries: ExfatDirEntryReader::new(sb_info, sb_state, index)?,
-            index: 0,
+            sb_info,
+            entries: ExFatDirEntryReader::new(sb_info, sb_state, index)?,
         })
-    }
-
-    pub(crate) fn get_curr_index(&self) -> u32 {
-        self.index
     }
 }
 
@@ -161,13 +195,15 @@ impl Iterator for DirEntryReader<'_> {
     type Item = Result<DirEntry>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let file = self.entries.find_map(|entry| match entry {
-            Err(e) => Some(Err(e)),
-            Ok(ExfatDirEntry::File(entry)) => Some(Ok(entry)),
-            Ok(_) => None,
-        })?;
+        let file = self
+            .entries
+            .find_map(|entry| match entry.map(|e| (e, e.kind)) {
+                Err(e) => Some(Err(e)),
+                Ok((entry, ExFatDirEntryKind::File(file))) => Some(Ok((entry, file))),
+                Ok(_) => None,
+            })?;
 
-        let file = match file {
+        let (file_entry, file) = match file {
             Ok(f) => f,
             Err(e) => return Some(Err(e)),
         };
@@ -177,8 +213,15 @@ impl Iterator for DirEntryReader<'_> {
                 pr_err!("Failed to retrieve next DirEntry, err {:?}", e);
                 return Some(Err(e));
             }
-            Some(Ok(ExfatDirEntry::StreamExtension(entry))) => entry,
-            v => {
+            Some(Ok(ExFatDirEntry {
+                kind: ExFatDirEntryKind::StreamExtension(entry),
+                ..
+            })) => entry,
+            None => {
+                pr_err!("ExFatDirEntryReader: expected StreamExtension, found nothing");
+                return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
+            }
+            Some(Ok(v)) => {
                 pr_err!("Unknown entry: {:?}", v);
                 return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
             }
@@ -197,9 +240,22 @@ impl Iterator for DirEntryReader<'_> {
 
         for _ in 0..number_of_file_name_entries {
             let file_name_entry = match self.entries.next() {
-                Some(Err(e)) => return Some(Err(e)),
-                Some(Ok(ExfatDirEntry::FileName(entry))) => entry,
-                _ => return Some(Err(Error::EIO)), // TODO: not sure which error is appropriate here
+                Some(Err(e)) => {
+                    pr_err!("Failed to retrieve next DirEntry, err {:?}", e);
+                    return Some(Err(e));
+                }
+                Some(Ok(ExFatDirEntry {
+                    kind: ExFatDirEntryKind::FileName(entry),
+                    ..
+                })) => entry,
+                None => {
+                    pr_err!("ExFatDirEntryReader: expected StreamExtension, found nothing");
+                    return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
+                }
+                Some(Ok(v)) => {
+                    pr_err!("Unknown entry: {:?}", v);
+                    return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
+                }
             };
 
             for c in file_name_entry.chars() {
@@ -226,13 +282,19 @@ impl Iterator for DirEntryReader<'_> {
         };
 
         let dir_entry = DirEntry {
-            cluster: stream_ext.first_cluster.to_native(),
+            data_cluster: stream_ext.first_cluster.to_native(),
             data_length: stream_ext.data_length.to_native(),
+
+            cluster: file_entry.cluster,
+            index: file_entry.index,
+
             attrs: file.file_attributes,
-            entry: self.index,
             name,
+
+            create_time: file.create_time(self.sb_info),
+            access_time: file.access_time(self.sb_info),
+            modified_time: file.modified_time(self.sb_info),
         };
-        self.index += 1;
         Some(Ok(dir_entry))
     }
 }

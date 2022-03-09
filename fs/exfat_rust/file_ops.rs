@@ -107,7 +107,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
                 Some(entry) => entry?,
             };
 
-            let inum = if let Some(node) = get_inode(sbi, inode.start_cluster, dir_entry.entry) {
+            let inum = if let Some(node) = get_inode(&sbi.inode_hashtable, inode.start_cluster, dir_entry.index) {
                 // SAFETY: TODO
                 unsafe { iput(node as *mut _ as *mut Inode); }
                 node.vfs_inode.i_ino

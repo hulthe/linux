@@ -18,7 +18,7 @@ mod math;
 mod superblock;
 mod upcase;
 
-use crate::inode::{InodeExt, INODE_CACHE};
+use crate::inode::{InodeExt, INODE_ALLOC_CACHE};
 use core::pin::Pin;
 use core::ptr::null_mut;
 use fs_parameter::{exfat_parse_param, EXFAT_PARAMETERS};
@@ -206,7 +206,7 @@ fn fill_super(sb: &mut SuperBlock) -> Result {
     }
     inode::read_root_inode(root_inode, exfat_sb_info)?;
 
-    inode::insert_inode(exfat_sb_info, root_inode.to_info_mut());
+    inode::insert_inode(&exfat_sb_info.inode_hashtable, root_inode.to_info_mut());
     unsafe { __insert_inode_hash(root_inode, root_inode.to_info().unique_num()) };
 
     let sb = &mut exfat_sb_info.state.as_mut().unwrap().get_mut().sb;
@@ -298,7 +298,7 @@ impl KernelModule for ExFatRust {
         const SLAB_RECLAIM_ACCOUNT: u32 = 0x00020000;
         const SLAB_MEM_SPREAD: u32 = 0x0010000;
         if let Err(e) = unsafe {
-            INODE_CACHE.create(
+            INODE_ALLOC_CACHE.create(
                 "exfat inode cache\0",
                 SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD,
             )

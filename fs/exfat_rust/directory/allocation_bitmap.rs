@@ -2,7 +2,7 @@ use core::mem::transmute;
 use kernel::endian::{u32le, u64le};
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct AllocationBitmap {
     _entry_type: u8,
     pub(crate) bitmap_flags: u8,

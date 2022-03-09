@@ -1,5 +1,5 @@
 use crate::checksum::{calc_checksum_32, ChecksumType};
-use crate::directory::{ExfatDirEntry, ExfatDirEntryReader};
+use crate::directory::{ExFatDirEntryKind, ExFatDirEntryReader};
 use crate::external::BufferHead;
 use crate::heap::cluster_to_sector;
 use crate::superblock::{SbInfo, SbState, SuperBlockInfo};
@@ -16,10 +16,10 @@ pub(crate) fn create_upcase_table(sbi: &mut SuperBlockInfo<'_>) -> Result {
     let sb_state = sbi.state.as_mut().unwrap().get_mut();
     let root_dir = sb_info.boot_sector_info.root_dir;
 
-    let upcase_entry = ExfatDirEntryReader::new(sb_info, sb_state, root_dir)?
-        .find_map(|entry| match entry {
+    let upcase_entry = ExFatDirEntryReader::new(sb_info, sb_state, root_dir)?
+        .find_map(|entry| match entry.map(|e| e.kind) {
             Err(e) => Some(Err(e)),
-            Ok(ExfatDirEntry::UpCaseTable(entry)) => Some(Ok(entry)),
+            Ok(ExFatDirEntryKind::UpCaseTable(entry)) => Some(Ok(entry)),
             Ok(_) => None,
         })
         .transpose()?;

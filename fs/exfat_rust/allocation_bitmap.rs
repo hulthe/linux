@@ -1,4 +1,4 @@
-use crate::directory::{ExfatDirEntry, ExfatDirEntryReader};
+use crate::directory::{ExFatDirEntryKind, ExFatDirEntryReader};
 use crate::heap::ClusterChain;
 use crate::superblock::SuperBlockInfo;
 use crate::BITS_PER_BYTE;
@@ -45,10 +45,10 @@ pub(crate) fn load_allocation_bitmap(sbi: &mut SuperBlockInfo<'_>) -> Result {
     let sb_state = &mut sbi.state.as_mut().unwrap().get_mut();
     let root_dir = sbi.info.boot_sector_info.root_dir;
 
-    let bitmap_entry = ExfatDirEntryReader::new(&sbi.info, sb_state, root_dir)?
-        .find_map(|entry| match entry {
+    let bitmap_entry = ExFatDirEntryReader::new(&sbi.info, sb_state, root_dir)?
+        .find_map(|entry| match entry.map(|e| e.kind) {
             Err(e) => Some(Err(e)),
-            Ok(ExfatDirEntry::AllocationBitmap(entry)) => Some(Ok(entry)),
+            Ok(ExFatDirEntryKind::AllocationBitmap(entry)) => Some(Ok(entry)),
             Ok(_) => None,
         })
         .ok_or(Error::EINVAL)??;
