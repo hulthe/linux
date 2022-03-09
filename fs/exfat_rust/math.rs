@@ -1,4 +1,5 @@
 use kernel::bindings::timespec64 as TimeSpec64;
+use kernel::pr_info;
 
 /// Rounds a number up to the next multiple of the given base.
 /// # Arguments
@@ -6,8 +7,8 @@ use kernel::bindings::timespec64 as TimeSpec64;
 /// * `num` - A number to round
 /// * `base` - The base from which to base the multiple. !!NOTE!! MUST BE A POWER OF 2.
 #[inline(always)]
-pub(crate) const fn round_up_to_next_multiple(num: u64, base: u64) -> u64 {
-    (num - 1) | (base - 1) + 1
+pub(crate) fn round_up_to_next_multiple(num: u64, base: u64) -> u64 {
+    (num.wrapping_sub(1)) | (base - 1) + 1
 }
 
 /// Rounds a number down to the previous multiple of the given base.
