@@ -134,7 +134,7 @@ impl Iterator for ExFatDirEntryReader<'_> {
             ENTRY_TYPE_STREAM => Entry::StreamExtension(StreamExtension::from_bytes(buf)),
             ENTRY_TYPE_NAME => Entry::FileName(FileName::from_bytes(buf)),
             _ => {
-                pr_info!("ExFatDirEntryReader: skipping unknown directory entry: {entry_type:x}");
+                pr_info!("ExFatDirEntryReader: skipping unknown directory entry: 0x{entry_type:x}");
                 return self.next(); // TODO: remove this and implement remaining directory entries
             }
         };
