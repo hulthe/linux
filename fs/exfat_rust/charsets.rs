@@ -1,6 +1,7 @@
 use crate::superblock::SbInfo;
 use kernel::bindings::{utf16_endian_UTF16_HOST_ENDIAN, utf8s_to_utf16s};
 use kernel::endian::u16le;
+use kernel::prelude::*;
 use kernel::{pr_err, Error, Result};
 
 // TODO: These constants should probably be moved somewhere else.
@@ -30,11 +31,7 @@ enum NlsNameMode {
 }
 
 impl UTF16String {
-    pub(crate) fn from_nls(
-        sb_info: &SbInfo,
-        nls_string: &str,
-        p_lossy: bool,
-    ) -> Result<UTF16String> {
+    pub(crate) fn from_nls(sb_info: &SbInfo, nls_string: String, p_lossy: bool) -> Result<String> {
         if sb_info.options.utf8 {
             todo!("Non UTF8 modes are not supported");
         }
@@ -97,7 +94,10 @@ impl UTF16String {
             todo!("P_LOSSY not implemented utf8 to utf16");
         }
 
-        return Ok(UTF16String(utf16_string));
+        // TODO: Use uppercase to calculate hash for optimization purposes
+
+        // FUCK DO I KNOW...
+        return Ok(nls_string);
     }
 }
 
