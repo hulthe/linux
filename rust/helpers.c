@@ -565,6 +565,12 @@ struct user_namespace *rust_helper_current_user_ns(void)
 }
 EXPORT_SYMBOL_GPL(rust_helper_current_user_ns);
 
+bool rust_helper_d_unhashed(const struct dentry *dentry)
+{
+	return d_unhashed(dentry);
+}
+EXPORT_SYMBOL_GPL(rust_helper_d_unhashed);
+
 /* We use bindgen's --size_t-is-usize option to bind the C size_t type
  * as the Rust usize type, so we can use it in contexts where Rust
  * expects a usize like slice (array) indices. usize is defined to be
