@@ -96,7 +96,7 @@ pub(crate) fn get_inode(
     while let Some(inode) = cursor.current() {
         cursor.move_next();
 
-        let entry_key = (inode.start_cluster, inode.entry_index);
+        let entry_key = (inode.dir_cluster, inode.entry_index);
         if entry_key == key {
             let inode = unsafe { igrab(inode as *const _ as *mut Inode) };
             let inode = inode as *mut InodeInfo;
@@ -119,7 +119,7 @@ pub(crate) fn insert_inode(inode_hashtable: &SpinLock<InodeHashTable>, inode: &m
     let hashtable = &mut hashtable.inner;
 
     // TODO: actually hash the key
-    let key = inode_unique_num(inode.start_cluster, inode.entry_index);
+    let key = inode_unique_num(inode.dir_cluster, inode.entry_index);
     let hash = key;
 
     let bucket = &mut hashtable[hash as usize % hashtable.len()];
@@ -138,10 +138,13 @@ pub(crate) struct InodeInfo {
     pub(crate) vfs_inode: Inode,
     // struct exfat_chain dir;
     /// The start of the cluster chain that contains the directory entry for this inode
-    pub(crate) start_cluster: u32,
+    pub(crate) dir_cluster: u32,
 
     /// The ExFatDirEntry index in the cluster chain
     pub(crate) entry_index: u32,
+
+    /// The start of the cluster chain that contains the data for this inode
+    pub(crate) data_cluster: u32,
 
     pub(crate) size_aligned: u64,
     pub(crate) size_ondisk: u64,
@@ -190,12 +193,13 @@ pub(crate) struct InodeInfo {
 impl InodeInfo {
     /// Get the unique number that identifies this Inode
     pub(crate) fn unique_num(&self) -> u64 {
-        inode_unique_num(self.start_cluster, self.entry_index)
+        inode_unique_num(self.dir_cluster, self.entry_index)
     }
 
     fn fill(&mut self, sb_info: &SbInfo, sb_state: &SbState<'_>, dir: &DirEntry) {
-        self.start_cluster = dir.cluster;
+        self.dir_cluster = dir.cluster;
         self.entry_index = dir.index;
+        self.data_cluster = dir.data_cluster;
         //ei->dir = info->dir;
         //ei->entry = info->entry;
         //ei->attr = info->attr;
@@ -267,7 +271,7 @@ impl InodeInfo {
         sb_info: &SbInfo,
         inode_hashtable: &SpinLock<InodeHashTable>,
         dir: &DirEntry,
-    ) -> Result<&'a Self> {
+    ) -> Result<&'a mut Self> {
         if let Some(inode) = get_inode(inode_hashtable, dir.cluster, dir.index) {
             return Ok(inode);
         }
@@ -304,8 +308,10 @@ impl PtrInit for InodeInfo {
             vfs_inode: kernel_inode,
 
             // zero-init everything
-            start_cluster: 0,
+            dir_cluster: 0,
             entry_index: 0,
+
+            data_cluster: 0,
 
             size_aligned: 0,
             size_ondisk: 0,
@@ -363,7 +369,8 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
     let sb = &mut sb_state.sb;
 
     let root_dir = sb_info.boot_sector_info.root_dir;
-    info.start_cluster = root_dir;
+    info.dir_cluster = 0; // TODO
+    info.data_cluster = root_dir;
     let chain_reader = FatChainReader::new(sb, root_dir);
 
     fn count_oks<T>(bucket: Result<u32>, item: Result<T>) -> Result<u32> {

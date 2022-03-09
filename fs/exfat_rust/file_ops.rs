@@ -88,7 +88,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
         }
 
 
-        pr_info!("exfat_iterate start_cluster {}", inode.start_cluster);
+        pr_info!("exfat_iterate cluster {}", inode.data_cluster);
         let mut sb_lock_guard = Some(sb_state);
         loop {
             let mut sb_state = sb_lock_guard
@@ -99,7 +99,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
             context.pos += 1;
             pr_info!("exfat_iterate next entry {entry_index}");
 
-            let reader = DirEntryReader::new(sb_info, &sb_state, inode.start_cluster)?;
+            let reader = DirEntryReader::new(sb_info, &sb_state, inode.data_cluster)?;
             let mut reader = reader.skip(entry_index as usize);
 
             let dir_entry = match reader.next() {
@@ -107,7 +107,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
                 Some(entry) => entry?,
             };
 
-            let inum = if let Some(node) = get_inode(&sbi.inode_hashtable, inode.start_cluster, dir_entry.index) {
+            let inum = if let Some(node) = get_inode(&sbi.inode_hashtable, dir_entry.cluster, dir_entry.index) {
                 // SAFETY: TODO
                 unsafe { iput(node as *mut _ as *mut Inode); }
                 node.vfs_inode.i_ino

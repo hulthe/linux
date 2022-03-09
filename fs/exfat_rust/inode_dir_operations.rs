@@ -2,14 +2,15 @@ use crate::charsets::{MAX_CHARSET_SIZE, MAX_NAME_LENGTH};
 use crate::directory::{DirEntry, DirEntryReader};
 use crate::inode::{InodeExt, InodeInfo};
 use crate::superblock::{take_sb, SbInfo, SbState, SuperBlockInfo};
+use core::ptr::null_mut;
 use kernel::bindings::{
-    d_drop, d_find_alias, d_move, d_rehash, d_unhashed, dentry as DEntry, dput, inode as Inode,
-    inode_operations as InodeOperations, iput, umode_t, user_namespace as UserNamespace,
-    DCACHE_DISCONNECTED,
+    d_drop, d_find_alias, d_move, d_rehash, d_splice_alias, d_unhashed, dentry as DEntry, dput,
+    inode as Inode, inode_operations as InodeOperations, iput, umode_t,
+    user_namespace as UserNamespace, DCACHE_DISCONNECTED,
 };
 use kernel::c_types::{c_int, c_uint};
 use kernel::prelude::*;
-use kernel::Error;
+use kernel::{from_kernel_err_ptr, Error};
 
 extern "C" fn exfat_create(
     _mnt_userns: *mut UserNamespace,
@@ -43,7 +44,7 @@ fn find_dir<'a>(
     inode: &InodeInfo,
     name: &str,
 ) -> Result<DirEntry> {
-    let reader = DirEntryReader::new(sb_info, sb_state, inode.start_cluster)?;
+    let reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
 
     // TODO: Add name hashing optimization & hint optimization.
 
@@ -98,7 +99,7 @@ fn lookup<'a>(
     sbi: &'a SuperBlockInfo<'a>,
     dentry: &mut DEntry,
     path_name: &CStr,
-) -> Result<&'static mut DEntry> {
+) -> Result<Option<&'static mut DEntry>> {
     let mut sb_state = sbi.state.as_ref().unwrap().lock();
     let sb_info = &sbi.info;
 
@@ -107,62 +108,76 @@ fn lookup<'a>(
     let is_dir = dir_entry.attrs.directory();
 
     let inode = InodeInfo::build(&mut sb_state, sb_info, &sbi.inode_hashtable, &dir_entry)?;
+    // TODO: call exfat_d_version_set if inode failed with ENOENT
 
+    pr_info!("dir_inode i_ino: {:?}", dir_inode.vfs_inode.i_ino);
+    pr_info!("dir_inode data_cluster: {:?}", dir_inode.data_cluster);
+    pr_info!("dir_inode dir_cluster: {:?}", dir_inode.dir_cluster);
     pr_info!("looked up {}", dir_entry.name);
+    pr_info!("dir_entry data_cluster {}", dir_entry.data_cluster);
+    pr_info!("inode data_cluster {}", inode.data_cluster);
+    pr_info!("inode dir_cluster {}", inode.dir_cluster);
 
-    pr_info!("i_mode: {:?}", inode.vfs_inode.i_mode);
-    pr_info!("i_opflags: {:?}", inode.vfs_inode.i_opflags);
-    pr_info!("i_flags: {:?}", inode.vfs_inode.i_flags);
-    pr_info!("i_acl: {:?}", inode.vfs_inode.i_acl);
-    pr_info!("i_default_acl: {:?}", inode.vfs_inode.i_default_acl);
-    pr_info!("i_op: {:?}", inode.vfs_inode.i_op);
-    pr_info!("i_sb: {:?}", inode.vfs_inode.i_sb);
-    pr_info!("i_mapping: {:?}", inode.vfs_inode.i_mapping);
-    pr_info!("i_security: {:?}", inode.vfs_inode.i_security);
-    pr_info!("i_ino: {:?}", inode.vfs_inode.i_ino);
-    pr_info!("i_rdev: {:?}", inode.vfs_inode.i_rdev);
-    pr_info!("i_size: {:?}", inode.vfs_inode.i_size);
-    pr_info!("i_bytes: {:?}", inode.vfs_inode.i_bytes);
-    pr_info!("i_blkbits: {:?}", inode.vfs_inode.i_blkbits);
-    pr_info!("i_write_hint: {:?}", inode.vfs_inode.i_write_hint);
-    pr_info!("i_blocks: {:?}", inode.vfs_inode.i_blocks);
-    pr_info!("i_state: {:?}", inode.vfs_inode.i_state);
-    pr_info!("dirtied_when: {:?}", inode.vfs_inode.dirtied_when);
-    pr_info!("dirtied_time_when: {:?}", inode.vfs_inode.dirtied_time_when);
-    pr_info!("i_flctx: {:?}", inode.vfs_inode.i_flctx);
-    pr_info!("i_generation: {:?}", inode.vfs_inode.i_generation);
-    pr_info!("i_fsnotify_mask: {:?}", inode.vfs_inode.i_fsnotify_mask);
-    pr_info!("i_fsnotify_marks: {:?}", inode.vfs_inode.i_fsnotify_marks);
-    pr_info!("i_private: {:?}", inode.vfs_inode.i_private);
+    //pr_info!("dir i_mode: {:?}", dir_inode.vfs_inode.i_mode);
+    //pr_info!("dir i_opflags: {:?}", dir_inode.vfs_inode.i_opflags);
+    //pr_info!("dir i_flags: {:?}", dir_inode.vfs_inode.i_flags);
+    //pr_info!("dir i_acl: {:?}", dir_inode.vfs_inode.i_acl);
+    //pr_info!("dir i_default_acl: {:?}", dir_inode.vfs_inode.i_default_acl);
+    //pr_info!("dir i_op: {:?}", dir_inode.vfs_inode.i_op);
+    //pr_info!("dir i_sb: {:?}", dir_inode.vfs_inode.i_sb);
+    //pr_info!("dir i_mapping: {:?}", dir_inode.vfs_inode.i_mapping);
+    //pr_info!("dir i_security: {:?}", dir_inode.vfs_inode.i_security);
+    //pr_info!("dir i_rdev: {:?}", dir_inode.vfs_inode.i_rdev);
+    //pr_info!("dir i_size: {:?}", dir_inode.vfs_inode.i_size);
+    //pr_info!("dir i_bytes: {:?}", dir_inode.vfs_inode.i_bytes);
+    //pr_info!("dir i_blkbits: {:?}", dir_inode.vfs_inode.i_blkbits);
+    //pr_info!("dir i_write_hint: {:?}", dir_inode.vfs_inode.i_write_hint);
+    //pr_info!("dir i_blocks: {:?}", dir_inode.vfs_inode.i_blocks);
+    //pr_info!("dir i_state: {:?}", dir_inode.vfs_inode.i_state);
+    //pr_info!("dir dirtied_when: {:?}", dir_inode.vfs_inode.dirtied_when);
+    //pr_info!(
+    //    "dir dirtied_time_when: {:?}",
+    //    dir_inode.vfs_inode.dirtied_time_when
+    //);
+    //pr_info!("dir i_flctx: {:?}", dir_inode.vfs_inode.i_flctx);
+    //pr_info!("dir i_generation: {:?}", dir_inode.vfs_inode.i_generation);
+    //pr_info!(
+    //    "dir i_fsnotify_mask: {:?}",
+    //    dir_inode.vfs_inode.i_fsnotify_mask
+    //);
+    //pr_info!(
+    //    "dir i_fsnotify_marks: {:?}",
+    //    dir_inode.vfs_inode.i_fsnotify_marks
+    //);
+    //pr_info!("dir i_private: {:?}", dir_inode.vfs_inode.i_private);
 
-    let alias = match unsafe { d_find_alias(&mut dir_inode.vfs_inode).as_mut() } {
-        Some(alias) => alias,
-        None => todo!("oh no"), // TODO
-    };
-
-    // Checking "alias->d_parent == dentry->d_parent" to make sure
-    // FS is not corrupted (especially double linked dir).
-    if alias.d_parent == dentry.d_parent && !d_anon_disconn(alias) {
-        // Unhashed alias is able to exist because of revalidate()
-        // called by lookup_fast. You can easily make this status
-        // by calling create and lookup concurrently
-        // In such case, we reuse an alias instead of new dentry
-        if unsafe { d_unhashed(alias) } {
-            // WARN_ON(alias->d_name.hash_len != dentry->d_name.hash_len);
-            // exfat_info(sb, "rehashed a dentry(%p) in read lookup", alias);
-            unsafe { d_drop(dentry) };
-            unsafe { d_rehash(alias) };
-        } else if !is_dir {
-            // This inode has non anonymous-DCACHE_DISCONNECTED
-            // dentry. This means, the user did ->lookup() by an
-            // another name (longname vs 8.3 alias of it) in past.
-            //
-            // Switch to new one for reason of locality if possible.
-            unsafe { d_move(alias, dentry) };
+    let alias = unsafe { d_find_alias(&mut inode.vfs_inode) };
+    if let Some(alias) = unsafe { alias.as_mut() } {
+        // Checking "alias->d_parent == dentry->d_parent" to make sure
+        // FS is not corrupted (especially double linked dir).
+        if alias.d_parent == dentry.d_parent && !d_anon_disconn(alias) {
+            // Unhashed alias is able to exist because of revalidate()
+            // called by lookup_fast. You can easily make this status
+            // by calling create and lookup concurrently
+            // In such case, we reuse an alias instead of new dentry
+            if unsafe { d_unhashed(alias) } {
+                // WARN_ON(alias->d_name.hash_len != dentry->d_name.hash_len);
+                // exfat_info(sb, "rehashed a dentry(%p) in read lookup", alias);
+                unsafe { d_drop(dentry) };
+                unsafe { d_rehash(alias) };
+            } else if !is_dir {
+                // This inode has non anonymous-DCACHE_DISCONNECTED
+                // dentry. This means, the user did ->lookup() by an
+                // another name (longname vs 8.3 alias of it) in past.
+                //
+                // Switch to new one for reason of locality if possible.
+                unsafe { d_move(alias, dentry) };
+            }
+            unsafe { iput(&mut inode.vfs_inode) };
+            return Ok(Some(alias));
         }
-        unsafe { iput(&mut dir_inode.vfs_inode) };
-        return Ok(alias);
     }
+
     unsafe { dput(alias) };
 
     // TODO: figure out this stuff vvvv
@@ -173,7 +188,8 @@ fn lookup<'a>(
     //
     //    return d_splice_alias(inode, dentry);
 
-    todo!("lmao fuck")
+    let _ = sb_state; // drop superblock lock
+    unsafe { Ok(from_kernel_err_ptr(d_splice_alias(&mut inode.vfs_inode, dentry))?.as_mut()) }
 }
 
 #[inline]
@@ -197,12 +213,14 @@ extern "C" fn exfat_lookup(inode: *mut Inode, dentry: *mut DEntry, _flags: c_uin
     let sbi = take_sb(&sb);
 
     match lookup(inode, sbi, dentry, path_name) {
-        Ok(dentry) => dentry,
+        Ok(Some(dentry)) => dentry,
+        Ok(None) => null_mut(),
         Err(err) => {
-            todo!(
+            pr_err!(
                 "ERROR ERROR FUCK I DONT KNOW WHAT TO DO WITH IT AWHMYGAWD. {:?}",
                 err
             );
+            err.to_kernel_errno() as *mut _
         }
     }
 }
