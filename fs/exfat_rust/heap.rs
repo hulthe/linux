@@ -43,7 +43,7 @@ impl<'a> ClusterChain<'a> {
         index: ClusterIndex,
     ) -> Result<Self> {
         if !(NUM_RESERVED_CLUSTERS..sb_info.boot_sector_info.cluster_count()).contains(&index) {
-            pr_err!("Tried to read invalid cluster index ({index})");
+            pr_err!("Tried to read invalid cluster index (0x{index:x})");
             return Err(Error::EINVAL);
         }
 
