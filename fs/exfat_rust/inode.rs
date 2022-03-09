@@ -1,25 +1,29 @@
 use crate::directory::file::{FileAttributes, ROOT_FILE_ATTRIBUTE};
-use crate::directory::{ExfatDirEntry, ExfatDirEntryReader};
+use crate::directory::{DirEntry, ExFatDirEntryKind, ExFatDirEntryReader};
 use crate::fat::FatChainReader;
 use crate::file_ops::DIR_OPERATIONS;
 use crate::inode_dir_operations::DIR_INODE_OPERATIONS;
 use crate::kmem_cache::KMemCache;
 use crate::kmem_cache::PtrInit;
-use crate::math;
-use crate::superblock::{SuperBlock, SuperBlockInfo};
+use crate::math::{self, round_up_to_next_multiple};
+use crate::superblock::{SbInfo, SbState, SuperBlock, SuperBlockInfo};
+use crate::EXFAT_ROOT_INO;
 use core::mem::align_of;
 use core::ptr::{null_mut, NonNull};
 use kernel::bindings::{
-    current_time, i_size_read, i_size_write, igrab, inode_inc_iversion, inode_init_once, set_nlink,
+    __insert_inode_hash, current_time, i_size_read, i_size_write, igrab, inode_inc_iversion,
+    inode_init_once, inode_set_iversion, iunique, new_inode, prandom_u32, set_nlink,
     ___GFP_DIRECT_RECLAIM, ___GFP_IO, ___GFP_KSWAPD_RECLAIM,
 };
 use kernel::linked_list::{GetLinks, GetLinksWrapped, Links, List, Wrapper};
-use kernel::Result;
+use kernel::sync::SpinLock;
+use kernel::{Error, Result};
 
 pub(crate) type Inode = kernel::bindings::inode;
 
 // TODO: consider making this not a global. e.g. by putting it in the superblock
-pub(crate) static INODE_CACHE: KMemCache<InodeInfo> = KMemCache::new();
+/// Cache allocations of InodeInfo:s
+pub(crate) static INODE_ALLOC_CACHE: KMemCache<InodeInfo> = KMemCache::new();
 
 const EXFAT_HASH_BITS: usize = 8;
 const EXFAT_HASH_SIZE: usize = 1 << EXFAT_HASH_BITS;
@@ -73,11 +77,11 @@ pub(crate) fn inode_unique_num(cluster: u32, entry: u32) -> u64 {
 }
 
 pub(crate) fn get_inode(
-    sbi: &SuperBlockInfo<'_>,
+    inode_hashtable: &SpinLock<InodeHashTable>,
     cluster_index: u32,
     dir_index: u32,
 ) -> Option<&'static mut InodeInfo> {
-    let hashtable = sbi.inode_hashtable.lock();
+    let hashtable = inode_hashtable.lock();
     let hashtable = &hashtable.inner;
 
     // TODO: actually hash the key
@@ -89,12 +93,12 @@ pub(crate) fn get_inode(
     let mut cursor = bucket.cursor_front();
 
     let key = (cluster_index, dir_index);
-    while let Some(entry) = cursor.current() {
+    while let Some(inode) = cursor.current() {
         cursor.move_next();
 
-        let entry_key = (entry.start_cluster, entry.entry);
+        let entry_key = (inode.start_cluster, inode.entry_index);
         if entry_key == key {
-            let inode = unsafe { igrab(entry as *const _ as *mut Inode) };
+            let inode = unsafe { igrab(inode as *const _ as *mut Inode) };
             let inode = inode as *mut InodeInfo;
 
             // if igrab returns null, the C version just continues the loop.
@@ -110,12 +114,12 @@ pub(crate) fn get_inode(
     None
 }
 
-pub(crate) fn insert_inode(sbi: &SuperBlockInfo<'_>, inode: &mut InodeInfo) {
-    let mut hashtable = sbi.inode_hashtable.lock();
+pub(crate) fn insert_inode(inode_hashtable: &SpinLock<InodeHashTable>, inode: &mut InodeInfo) {
+    let mut hashtable = inode_hashtable.lock();
     let hashtable = &mut hashtable.inner;
 
     // TODO: actually hash the key
-    let key = inode_unique_num(inode.start_cluster, inode.entry);
+    let key = inode_unique_num(inode.start_cluster, inode.entry_index);
     let hash = key;
 
     let bucket = &mut hashtable[hash as usize % hashtable.len()];
@@ -133,8 +137,15 @@ pub(crate) struct InodeInfo {
     // DO NOT TOUCH!!!!!!!! (:cry:)!!!!!!!
     pub(crate) vfs_inode: Inode,
     // struct exfat_chain dir;
-    pub(crate) entry: u32,
+    /// The start of the cluster chain that contains the directory entry for this inode
     pub(crate) start_cluster: u32,
+
+    /// The ExFatDirEntry index in the cluster chain
+    pub(crate) entry_index: u32,
+
+    pub(crate) size_aligned: u64,
+    pub(crate) size_ondisk: u64,
+
     // unsigned int type;
     // unsigned short attr;
     // unsigned char flags;
@@ -179,7 +190,101 @@ pub(crate) struct InodeInfo {
 impl InodeInfo {
     /// Get the unique number that identifies this Inode
     pub(crate) fn unique_num(&self) -> u64 {
-        inode_unique_num(self.start_cluster, self.entry)
+        inode_unique_num(self.start_cluster, self.entry_index)
+    }
+
+    fn fill(&mut self, sb_info: &SbInfo, sb_state: &SbState<'_>, dir: &DirEntry) {
+        self.start_cluster = dir.cluster;
+        self.entry_index = dir.index;
+        //ei->dir = info->dir;
+        //ei->entry = info->entry;
+        //ei->attr = info->attr;
+        //ei->start_clu = info->start_clu;
+        //ei->flags = info->flags;
+        //ei->type = info->type;
+
+        //ei->version = 0;
+        //ei->hint_stat.eidx = 0;
+        //ei->hint_stat.clu = info->start_clu;
+        //ei->hint_femp.eidx = EXFAT_HINT_NONE;
+        //ei->hint_bmap.off = EXFAT_EOF_CLUSTER;
+        //ei->i_pos = 0;
+
+        self.vfs_inode.i_uid = sb_info.options.fs_uid;
+        self.vfs_inode.i_gid = sb_info.options.fs_gid;
+        unsafe { inode_inc_iversion(&mut self.vfs_inode) };
+        self.vfs_inode.i_generation = unsafe { prandom_u32() };
+
+        if dir.attrs.directory() {
+            self.vfs_inode.i_generation &= !1u32; // unset the lowest bit
+            self.vfs_inode.i_mode = dir.attrs.to_unix(0o777, sb_info);
+            self.vfs_inode.i_op = &DIR_INODE_OPERATIONS;
+            self.vfs_inode.__bindgen_anon_3.i_fop = unsafe { &DIR_OPERATIONS };
+
+            // set_nlink(&mut self.vfs_inode, dir.num_subdirs); // TODO
+            unsafe { set_nlink(&mut self.vfs_inode, 0) };
+        } else {
+            // regular file
+            self.vfs_inode.i_generation |= 1; // set the lowest bit
+            self.vfs_inode.i_mode = dir.attrs.to_unix(0o777, sb_info);
+            //self.vfs_inode.i_op = unsafe { &FILE_INODE_OPERATIONS }; // TODO
+            //self.vfs_inode.__bindgen_anon_3.i_fop = unsafe { &FILE_OPERATIONS }; // TODO
+
+            let i_mapping = unsafe { &mut *self.vfs_inode.i_mapping };
+            // i_mapping.a_ops = &ADDRESS_SPACE_OPS; // TODO
+            i_mapping.nrpages = 0;
+        }
+
+        // TODO: make sure data_length is what we're supposed to be using
+        let mut size = dir.data_length;
+        unsafe { i_size_write(&mut self.vfs_inode, size as i64) };
+
+        // ondisk and aligned size should be aligned with block size
+        if size & (sb_state.sb.s_blocksize - 1) != 0 {
+            size |= sb_state.sb.s_blocksize - 1;
+            size += 1;
+        }
+
+        self.size_aligned = size;
+        self.size_ondisk = size;
+
+        // exfat_save_attr(inode, dir.attrs) // TODO
+
+        self.vfs_inode.i_blocks = round_up_to_next_multiple(
+            unsafe { i_size_read(&self.vfs_inode) } as u64,
+            sb_info.boot_sector_info.cluster_size as u64,
+        ) >> self.vfs_inode.i_blkbits;
+
+        self.vfs_inode.i_mtime = dir.modified_time;
+        self.vfs_inode.i_ctime = dir.modified_time; // TODO: unsure why ctime is set to mtime here?
+        self.vfs_inode.i_atime = dir.access_time;
+        //self.i_crtime = dir.create_time; // TODO
+    }
+
+    /// Get an inode from the cache, or create a new one of it doesn't exist.
+    pub(crate) fn build<'a>(
+        sb_state: &mut SbState<'_>,
+        sb_info: &SbInfo,
+        inode_hashtable: &SpinLock<InodeHashTable>,
+        dir: &DirEntry,
+    ) -> Result<&'a Self> {
+        if let Some(inode) = get_inode(inode_hashtable, dir.cluster, dir.index) {
+            return Ok(inode);
+        }
+
+        // SAFETY: TODO
+        let inode = unsafe { new_inode(sb_state.sb).as_mut() }.ok_or(Error::ENOMEM)?;
+
+        inode.i_ino = unsafe { iunique(sb_state.sb, EXFAT_ROOT_INO) };
+        unsafe { inode_set_iversion(inode, 1) };
+
+        let inode = inode.to_info_mut();
+        inode.fill(sb_info, sb_state, dir);
+
+        insert_inode(inode_hashtable, inode);
+        unsafe { __insert_inode_hash(&mut inode.vfs_inode, inode.unique_num()) };
+
+        Ok(inode)
     }
 }
 
@@ -199,8 +304,11 @@ impl PtrInit for InodeInfo {
             vfs_inode: kernel_inode,
 
             // zero-init everything
-            entry: 0,
             start_cluster: 0,
+            entry_index: 0,
+
+            size_aligned: 0,
+            size_ondisk: 0,
 
             inode_cache_list: Links::new(),
         };
@@ -236,7 +344,7 @@ pub(crate) extern "C" fn alloc_inode(_sb: *mut SuperBlock) -> *mut Inode {
     // bindgen is confused by these constants. // TODO move them
     const __GFP_RECLAIM: u32 = ___GFP_DIRECT_RECLAIM | ___GFP_KSWAPD_RECLAIM;
     const GFP_NOFS: u32 = __GFP_RECLAIM | ___GFP_IO;
-    if let Ok(ei) = INODE_CACHE.alloc(GFP_NOFS) {
+    if let Ok(ei) = INODE_ALLOC_CACHE.alloc(GFP_NOFS) {
         // TODO: initialize locks
         unsafe { &mut (*ei.as_ptr()).vfs_inode }
     } else {
@@ -271,17 +379,11 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
         i_size_write(inode, clusters_size);
     }
 
-    let dir_reader = ExfatDirEntryReader::new(sb_info, sb_state, root_dir)?;
+    let dir_reader = ExFatDirEntryReader::new(sb_info, sb_state, root_dir)?;
     let num_subdirs = dir_reader
-        .filter_map(|dir_entry| match dir_entry {
+        .filter_map(|dir_entry| match dir_entry.map(|e| e.kind) {
             Err(e) => Some(Err(e)),
-            Ok(ExfatDirEntry::File(file)) => {
-                if file.file_attributes.directory() {
-                    Some(Ok(()))
-                } else {
-                    None
-                }
-            }
+            Ok(ExFatDirEntryKind::File(file)) => file.file_attributes.directory().then(|| Ok(())),
             _ => None,
         })
         .fold(Ok(0), count_oks)? as u32;
@@ -308,7 +410,7 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
     // SAFETY: TODO
     let size = unsafe { i_size_read(inode) };
     inode.i_blocks =
-        math::round_up_to_next_multiple(size as u64, sbi.info.boot_sector_info.cluster_size as u64)
+        round_up_to_next_multiple(size as u64, sbi.info.boot_sector_info.cluster_size as u64)
             >> inode.i_blkbits;
 
     // SAFETY: TODO

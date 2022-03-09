@@ -3,7 +3,7 @@ use core::mem::transmute;
 use kernel::endian::u16le;
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct FileName {
     _entry_type: u8,
     pub(crate) general_secondary_flags: u8,

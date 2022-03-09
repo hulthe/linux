@@ -6,6 +6,9 @@ use core::cmp::min;
 use kernel::{pr_err, Error, Result};
 
 pub(crate) struct ClusterChain<'a> {
+    /// The cluster index for the start of the chain
+    start_cluster: ClusterIndex,
+
     state: Option<ClusterChainState<'a>>,
 }
 
@@ -55,7 +58,15 @@ impl<'a> ClusterChain<'a> {
             sb: sb_state.sb,
         };
 
-        Ok(ClusterChain { state: Some(state) })
+        Ok(ClusterChain {
+            start_cluster: index,
+            state: Some(state),
+        })
+    }
+
+    /// Get the current cluster index
+    pub(crate) fn start_cluster(&self) -> u32 {
+        self.start_cluster
     }
 
     /// Read the exact amount of bytes to fill `buf`.
