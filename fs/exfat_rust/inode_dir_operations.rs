@@ -1,8 +1,7 @@
-use crate::charsets::{UTF16String, MAX_CHARSET_SIZE, MAX_NAME_LENGTH};
+use crate::charsets::{MAX_CHARSET_SIZE, MAX_NAME_LENGTH};
 use crate::directory::{DirEntry, DirEntryReader};
-use crate::inode::InodeExt;
-use crate::superblock::take_sb;
-use crate::superblock::SuperBlockInfo;
+use crate::inode::{InodeExt, InodeInfo};
+use crate::superblock::{take_sb, SbInfo, SbState, SuperBlockInfo};
 use kernel::bindings::{
     dentry as DEntry, inode as Inode, inode_operations as InodeOperations, umode_t,
     user_namespace as UserNamespace,
@@ -22,24 +21,28 @@ extern "C" fn exfat_create(
 }
 
 // exfat_find in namei.c
-fn find(sbi: &mut SuperBlockInfo<'_>, inode: Inode, name: String) -> Result<DirEntry> {
+fn find<'a>(
+    sb_info: &'a SbInfo,
+    sb_state: &'a SbState<'a>,
+    inode: &InodeInfo,
+    name: String,
+) -> Result<DirEntry> {
     if name.is_empty() {
         return Err(Error::ENOENT);
     }
 
-    let utf16_name = resolve_path(sbi, name)?;
-
-    todo!("Implement find_file");
+    let name = resolve_path(sb_info, sb_state, name)?;
+    return find_dir(sb_info, sb_state, inode, &name);
 }
 
 // exfat_find_dir_entry in dir.c
-fn find_dir(sbi: &mut SuperBlockInfo<'_>, inode: Inode, name: String) -> Result<DirEntry> {
-    let inode = inode.to_info();
-    let sb_info = &sbi.info;
-    let sb_lock = sbi.state.as_ref().unwrap();
-    let sb_state = sb_lock.lock();
-
-    let reader = DirEntryReader::new(sb_info, &sb_state, inode.start_cluster)?;
+fn find_dir<'a>(
+    sb_info: &'a SbInfo,
+    sb_state: &'a SbState<'a>,
+    inode: &InodeInfo,
+    name: &str,
+) -> Result<DirEntry> {
+    let reader = DirEntryReader::new(sb_info, sb_state, inode.start_cluster)?;
 
     // TODO: Add name hashing optimization & hint optimization.
 
@@ -56,7 +59,11 @@ fn find_dir(sbi: &mut SuperBlockInfo<'_>, inode: Inode, name: String) -> Result<
 
 /// Lookup a path in the given inode, if it exists return Ok with the UTF16 version of the name.
 // exfat_resolve_path_for_lookup in namei.c
-fn resolve_path(sbi: &SuperBlockInfo<'_>, path: String) -> Result<UTF16String> {
+fn resolve_path<'a>(
+    sb_info: &'a SbInfo,
+    sb_state: &'a SbState<'a>,
+    path: String,
+) -> Result<String> {
     // Remove trailing periods.
     let stripped = path.trim_end_matches(".");
     if stripped.is_empty() {
@@ -72,24 +79,49 @@ fn resolve_path(sbi: &SuperBlockInfo<'_>, path: String) -> Result<UTF16String> {
     // so we should skip these for compatability reasons.
 
     // File name conversion
-    let utf16: UTF16String = UTF16String::from_nls(&sbi.info, &path, false)?;
+    // let utf16: UTF16String = UTF16String::from_nls(&sbi.info, &path, false)?;
 
-    if utf16.0.len() == 0 {
-        return Err(Error::EINVAL);
-    }
+    // I guess this is not needed?
+    // if utf16.0.len() == 0 {
+    //     return Err(Error::EINVAL);
+    // }
 
     // TODO: Lossy handling
 
-    return Ok(utf16);
+    return Ok(path);
+    // return Ok(utf16);
 }
 
-extern "C" fn exfat_lookup(dir: *mut Inode, _dentry: *mut DEntry, _flags: c_uint) -> *mut DEntry {
-    let inode = unsafe { &mut *dir };
+fn lookup<'a>(inode: &InodeInfo, sbi: &'a SuperBlockInfo<'a>, path_name: &CStr) -> Result {
+    let sb_state = sbi.state.as_ref().unwrap().lock();
+    let sb_info = &sbi.info;
+
+    let path_name = path_name.to_str()?.try_to_owned()?;
+    let dir_entry = find(sb_info, &sb_state, inode, path_name);
+
+    // TODO: Idk, we should probably return something here but that's beyond my level of understanding.
+    Ok(())
+}
+
+extern "C" fn exfat_lookup(inode: *mut Inode, _dentry: *mut DEntry, _flags: c_uint) -> *mut DEntry {
+    // SAFETY: TODO
+    let inode = unsafe { &mut *inode };
+    // SAFETY: No idea. TODO
+    let path_name = unsafe { &CStr::from_char_ptr((*_dentry).d_name.name as *const i8) };
     let inode = inode.to_info_mut();
+    let sbi = take_sb(&inode.vfs_inode.i_sb);
 
-    let sb = take_sb(&inode.vfs_inode.i_sb);
-
-    let sb_state = sb.state.as_ref().unwrap().lock();
+    match lookup(inode, sbi, path_name) {
+        Ok(()) => {
+            // TODO: Handle whatever we eventually decide to return here or something.
+        }
+        Err(err) => {
+            todo!(
+                "ERROR ERROR FUCK I DONT KNOW WHAT TO DO WITH IT AWHMYGAWD. {:?}",
+                err
+            );
+        }
+    }
 
     // TODO: vvvvvvvvvvvvvvvvvvvv
     //	err = exfat_find(dir, &dentry->d_name, &info);
@@ -155,7 +187,7 @@ extern "C" fn exfat_lookup(dir: *mut Inode, _dentry: *mut DEntry, _flags: c_uint
     //	mutex_unlock(&EXFAT_SB(sb)->s_lock);
     //	return ERR_PTR(err);
 
-    todo!("exfat_lookup: {:x}", unsafe { (*dir).i_ino }); // TODO: implement me
+    todo!("exfat_lookup: {:x}", unsafe { inode.vfs_inode.i_ino }); // TODO: implement me
 }
 
 extern "C" fn exfat_mkdir(
