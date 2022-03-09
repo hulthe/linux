@@ -12,6 +12,7 @@ use crate::superblock::{SbInfo, SbState};
 use alloc::string::String;
 use allocation_bitmap::AllocationBitmap;
 use core::iter::FusedIterator;
+use core::ops::Range;
 use file::{File, FileAttributes};
 use file_name::FileName;
 use kernel::pr_err;
@@ -26,8 +27,9 @@ pub(crate) struct ToDo;
 /// The size of a directory  in bytes
 const ENTRY_SIZE: usize = 32;
 
-// copied constants from C, pls rename at your earliest convenience. thank
-const ENTRY_TYPE_UNUSED: u8 = 0x00;
+// TODO: copied constants from C, pls rename at your earliest convenience. thank
+const ENTRY_TYPE_END_OF_DIRECTORY: u8 = 0x00;
+const ENTRY_TYPE_DELETED: Range<u8> = 0x01..0x80;
 const ENTRY_TYPE_INVAL: u8 = 0x80;
 const ENTRY_TYPE_BITMAP: u8 = 0x81;
 const ENTRY_TYPE_UPCASE: u8 = 0x82;
@@ -43,6 +45,8 @@ const ENTRY_TYPE_ACL: u8 = 0xC2;
 /// All possible raw exfat directory entries
 #[derive(Debug)]
 pub(crate) enum ExfatDirEntry {
+    Deleted,
+
     // Critical primary
     AllocationBitmap(AllocationBitmap),
     UpCaseTable(UpCaseTable),
@@ -99,10 +103,11 @@ impl Iterator for ExfatDirEntryReader<'_> {
         let entry_type = buf[0];
 
         match entry_type {
-            ENTRY_TYPE_UNUSED => {
+            ENTRY_TYPE_END_OF_DIRECTORY => {
                 self.fused = true;
                 None
             }
+            t if ENTRY_TYPE_DELETED.contains(&t) => Some(Ok(ExfatDirEntry::Deleted)),
             ENTRY_TYPE_UPCASE => Some(Ok(ExfatDirEntry::UpCaseTable(UpCaseTable::from_bytes(buf)))),
             ENTRY_TYPE_BITMAP => Some(Ok(ExfatDirEntry::AllocationBitmap(
                 AllocationBitmap::from_bytes(buf),

@@ -1,15 +1,15 @@
 use crate::superblock::SbInfo;
 use kernel::bindings::{utf16_endian_UTF16_HOST_ENDIAN, utf8s_to_utf16s};
 use kernel::endian::u16le;
-use kernel::{pr_err, Error};
+use kernel::{pr_err, Error, Result};
 
 // TODO: These constants should probably be moved somewhere else.
 // Max length of a filename excluding NULL
-pub(crate) const MAX_NAME_LENGTH: u32 = 255;
+pub(crate) const MAX_NAME_LENGTH: i32 = 255;
 // Max size of multi-byte character
 pub(crate) const MAX_CHARSET_SIZE: u32 = 6;
 
-pub(crate) struct UTF16String([u16; MAX_NAME_LENGTH as usize + 3]);
+pub(crate) struct UTF16String(pub(crate) [u16; MAX_NAME_LENGTH as usize + 3]);
 
 /*
  * Allow full-width illegal characters :
@@ -30,7 +30,11 @@ enum NlsNameMode {
 }
 
 impl UTF16String {
-    pub(crate) fn from_nls(sb_info: &SbInfo, nls_string: &str, p_lossy: bool) -> UTF16String {
+    pub(crate) fn from_nls(
+        sb_info: &SbInfo,
+        nls_string: &str,
+        p_lossy: bool,
+    ) -> Result<UTF16String> {
         if sb_info.options.utf8 {
             todo!("Non UTF8 modes are not supported");
         }
@@ -40,14 +44,17 @@ impl UTF16String {
 
         // + 3 for NULL and converting(?)
         let mut utf16_string = [0u16; MAX_NAME_LENGTH as usize + 3];
+
+        let nls_string_bytes = nls_string.as_bytes();
+
         // SAFETY: TODO
         let length_or_err = unsafe {
             utf8s_to_utf16s(
-                nls_string.as_bytes().as_mut_ptr(),
-                nls_string.len(),
+                nls_string_bytes.as_ptr(),
+                nls_string.len() as i32,
                 utf16_endian_UTF16_HOST_ENDIAN,
                 utf16_string.as_mut_ptr(),
-                u16_length,
+                u16_length as i32,
             )
         };
 
@@ -66,16 +73,21 @@ impl UTF16String {
             return Err(Error::ENAMETOOLONG);
         }
 
+        // TODO: Implement
         let mut lossy = NlsNameMode::NoLossy as u32;
-        let mut uppercase_name = [0.into::<u16le>(); MAX_NAME_LENGTH as usize + 1];
+
+        const uppercase_name_length: usize = MAX_NAME_LENGTH as usize + 1;
+        let mut uppercase_name: [u16le; uppercase_name_length] = [0.into(); uppercase_name_length];
+
+        let length = length as usize;
 
         for i in 0..length {
             let char16: u16 = utf16_string[i];
-            if char16 < 0x0020 || BAD_UNICODE_CHARACTERS.contains(char16) {
-                lossy |= NlsNameMode::Lossy as u16;
+            if char16 < 0x0020 || BAD_UNICODE_CHARACTERS.contains(&char16) {
+                lossy |= NlsNameMode::Lossy as u32;
             }
 
-            uppercase_name[i] = to_upper(sb_info, char16).into();
+            uppercase_name[i] = to_upper(sb_info, char16)?.into();
         }
 
         // Append NULL terminator
@@ -85,15 +97,20 @@ impl UTF16String {
             todo!("P_LOSSY not implemented utf8 to utf16");
         }
 
-        return utf16_string.into();
+        return Ok(UTF16String(utf16_string));
     }
 }
 
 // TODO: Move somewhere else, anywhere but here
-fn to_upper(sb_info: &SbInfo, char16: u16) -> u16 {
-    let val = sb_info.upcase_table[char16];
-    if val != 0 {
-        return val;
+fn to_upper(sb_info: &SbInfo, char16: u16) -> Result<u16> {
+    if let Some(upcase_table) = &sb_info.upcase_table {
+        let val = upcase_table[char16 as usize];
+        if val != 0 {
+            return Ok(val);
+        }
+        return Ok(char16);
+    } else {
+        // TODO: Figure out what error would be appropriate here.
+        Err(Error::EINVAL)
     }
-    return char16;
 }
