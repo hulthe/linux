@@ -1,22 +1,26 @@
 use core::ptr::null_mut;
 use kernel::bindings::{
-    file, file_operations as FileOperations, iov_iter, kiocb, loff_t, pipe_inode_info,
-    vm_area_struct,
+    file, file_operations as FileOperations, generic_file_llseek, generic_file_mmap,
+    generic_file_read_iter, generic_file_splice_read, generic_file_write_iter, iov_iter,
+    iter_file_splice_write, kiocb, loff_t, pipe_inode_info, vm_area_struct,
 };
 use kernel::c_types;
 
 pub(crate) static mut FILE_OPERATIONS: FileOperations = FileOperations {
-    llseek: Some(exfat_llseek),
-    read_iter: Some(exfat_read_iter),
+    llseek: Some(generic_file_llseek),
+    read_iter: Some(generic_file_read_iter),
     unlocked_ioctl: Some(exfat_unlocked_ioctl),
+
+    #[cfg(CONFIG_COMPAT)]
     compat_ioctl: Some(exfat_compat_ioctl),
-    mmap: Some(exfat_mmap),
+
+    mmap: Some(generic_file_mmap),
     fsync: Some(exfat_fsync),
-    splice_read: Some(exfat_splice_read),
+    splice_read: Some(generic_file_splice_read),
 
     // Probably won't need for read-only
-    write_iter: Some(exfat_write_iter),
-    splice_write: Some(exfat_splice_write),
+    write_iter: Some(generic_file_write_iter),
+    splice_write: Some(iter_file_splice_write),
 
     // Not included in C version.
     owner: null_mut(),
