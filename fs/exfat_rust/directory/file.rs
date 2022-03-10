@@ -1,3 +1,4 @@
+use super::ENTRY_SIZE;
 use crate::superblock::SbInfo;
 use core::mem::transmute;
 use kernel::bindings::{mktime64, timespec64, NSEC_PER_MSEC, S_IFDIR, S_IFREG};
@@ -40,7 +41,7 @@ pub(crate) struct FileAttributes {
 
 impl File {
     /// Convert to this type from the on-disk representation of a File
-    pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub(crate) fn from_bytes(bytes: [u8; ENTRY_SIZE]) -> Self {
         // SAFETY: File is repr(C), and consists only of integers.
         unsafe { transmute(bytes) }
     }

@@ -1,3 +1,4 @@
+use super::ENTRY_SIZE;
 use core::mem::transmute;
 use kernel::endian::{u16le, u32le, u64le};
 
@@ -27,7 +28,7 @@ pub(crate) struct StreamExtension {
 }
 
 impl StreamExtension {
-    pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub(crate) fn from_bytes(bytes: [u8; ENTRY_SIZE]) -> Self {
         // SAFETY: File is repr(C), and consists only of integers.
         unsafe { transmute(bytes) }
     }
