@@ -5,21 +5,24 @@ pub(crate) mod file;
 pub(crate) mod file_name;
 pub(crate) mod stream_extension;
 pub(crate) mod upcase;
+pub(crate) mod volume_label;
+
+use allocation_bitmap::AllocationBitmap;
+use file::{File, FileAttributes};
+use file_name::FileName;
+use stream_extension::StreamExtension;
+use upcase::UpCaseTable;
+use volume_label::VolumeLabel;
 
 use crate::fat::ClusterIndex;
 use crate::heap::ClusterChain;
 use crate::superblock::{SbInfo, SbState};
 use alloc::string::String;
-use allocation_bitmap::AllocationBitmap;
 use core::iter::FusedIterator;
 use core::ops::Range;
-use file::{File, FileAttributes};
-use file_name::FileName;
 use kernel::bindings::timespec64;
 use kernel::prelude::*;
 use kernel::{pr_err, Error, Result};
-use stream_extension::StreamExtension;
-use upcase::UpCaseTable;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ToDo;
@@ -61,7 +64,7 @@ pub(crate) enum ExFatDirEntryKind {
     // Critical primary
     AllocationBitmap(AllocationBitmap),
     UpCaseTable(UpCaseTable),
-    VolumeLabel(ToDo), // TODO
+    VolumeLabel(VolumeLabel), // TODO
     File(File),
 
     // Benign primary
@@ -133,6 +136,7 @@ impl Iterator for ExFatDirEntryReader<'_> {
             ENTRY_TYPE_FILE => Entry::File(File::from_bytes(buf)),
             ENTRY_TYPE_STREAM => Entry::StreamExtension(StreamExtension::from_bytes(buf)),
             ENTRY_TYPE_NAME => Entry::FileName(FileName::from_bytes(buf)),
+            ENTRY_TYPE_VOLUME => Entry::VolumeLabel(VolumeLabel::from_bytes(buf)),
             _ => {
                 pr_info!("ExFatDirEntryReader: skipping unknown directory entry: 0x{entry_type:x}");
                 return self.next(); // TODO: remove this and implement remaining directory entries

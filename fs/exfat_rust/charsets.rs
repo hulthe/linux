@@ -6,11 +6,11 @@ use kernel::{pr_err, Error, Result};
 
 // TODO: These constants should probably be moved somewhere else.
 // Max length of a filename excluding NULL
-pub(crate) const MAX_NAME_LENGTH: i32 = 255;
+pub(crate) const MAX_NAME_LEN: i32 = 255;
 // Max size of multi-byte character
 pub(crate) const MAX_CHARSET_SIZE: u32 = 6;
 
-pub(crate) struct UTF16String(pub(crate) [u16; MAX_NAME_LENGTH as usize + 3]);
+pub(crate) struct UTF16String(pub(crate) [u16; MAX_NAME_LEN as usize + 3]);
 
 /*
  * Allow full-width illegal characters :
@@ -20,7 +20,7 @@ pub(crate) struct UTF16String(pub(crate) [u16; MAX_NAME_LENGTH as usize + 3]);
  *
  * " * / : < > ? \ |
  */
-const BAD_UNICODE_CHARACTERS: [u16; 9] = [
+const BAD_UNICODE_CHARACTERS: &[u16] = &[
     0x0022, 0x002A, 0x002F, 0x003A, 0x003C, 0x003E, 0x003F, 0x005C, 0x007C,
 ];
 
@@ -37,10 +37,10 @@ impl UTF16String {
         }
 
         // FIXME: Figure out why + 2.
-        let u16_length = MAX_NAME_LENGTH + 2;
+        let u16_length = MAX_NAME_LEN + 2;
 
         // + 3 for NULL and converting(?)
-        let mut utf16_string = [0u16; MAX_NAME_LENGTH as usize + 3];
+        let mut utf16_string = [0u16; MAX_NAME_LEN as usize + 3];
 
         let nls_string_bytes = nls_string.as_bytes();
 
@@ -61,11 +61,11 @@ impl UTF16String {
 
         let length = length_or_err;
 
-        if length > MAX_NAME_LENGTH {
+        if length > MAX_NAME_LEN {
             pr_err!(
                 "failed to convert utf8 to utf16, length : {} > {}",
                 length_or_err,
-                MAX_NAME_LENGTH
+                MAX_NAME_LEN
             );
             return Err(Error::ENAMETOOLONG);
         }
@@ -73,8 +73,8 @@ impl UTF16String {
         // TODO: Implement
         let mut lossy = NlsNameMode::NoLossy as u32;
 
-        const uppercase_name_length: usize = MAX_NAME_LENGTH as usize + 1;
-        let mut uppercase_name: [u16le; uppercase_name_length] = [0.into(); uppercase_name_length];
+        const UPPERCASE_NAME_LEN: usize = MAX_NAME_LEN as usize + 1;
+        let mut uppercase_name = [u16le::from(0); UPPERCASE_NAME_LEN];
 
         let length = length as usize;
 

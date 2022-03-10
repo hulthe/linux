@@ -1,5 +1,4 @@
 use kernel::bindings::timespec64 as TimeSpec64;
-use kernel::pr_info;
 
 /// Rounds a number up to the next multiple of the given base.
 /// # Arguments
