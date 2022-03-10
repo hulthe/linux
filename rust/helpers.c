@@ -581,6 +581,18 @@ void rust_helper_map_bh(struct buffer_head *bh, struct super_block *sb, sector_t
 }
 EXPORT_SYMBOL_GPL(rust_helper_map_bh);
 
+bool rust_helper_buffer_delay(struct buffer_head *bh)
+{
+	return buffer_delay(bh);
+}
+EXPORT_SYMBOL_GPL(rust_helper_buffer_delay);
+
+void rust_helper_clear_buffer_delay(struct buffer_head *bh)
+{
+	return clear_buffer_delay(bh);
+}
+EXPORT_SYMBOL_GPL(rust_helper_clear_buffer_delay);
+
 /* We use bindgen's --size_t-is-usize option to bind the C size_t type
  * as the Rust usize type, so we can use it in contexts where Rust
  * expects a usize like slice (array) indices. usize is defined to be
