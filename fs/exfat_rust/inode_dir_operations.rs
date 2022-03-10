@@ -1,4 +1,4 @@
-use crate::charsets::{MAX_CHARSET_SIZE, MAX_NAME_LENGTH};
+use crate::charsets::{MAX_CHARSET_SIZE, MAX_NAME_LEN};
 use crate::directory::{DirEntry, DirEntryReader};
 use crate::inode::{InodeExt, InodeInfo};
 use crate::superblock::{take_sb, SbInfo, SbState, SuperBlockInfo};
@@ -72,7 +72,7 @@ fn resolve_path<'a>(
         return Err(Error::ENOENT);
     }
 
-    if path.len() > (MAX_NAME_LENGTH as usize * MAX_CHARSET_SIZE as usize) {
+    if path.len() > (MAX_NAME_LEN as usize * MAX_CHARSET_SIZE as usize) {
         return Err(Error::ENAMETOOLONG);
     }
 
