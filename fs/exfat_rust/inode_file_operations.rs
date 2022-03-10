@@ -5,7 +5,7 @@ use core::cmp::min;
 use kernel::bindings::{
     address_space, address_space_operations as AddressSpaceOperations, buffer_head as BufferHead,
     dentry, file, iattr, inode_operations as InodeOperations, iov_iter, kiocb, kstat, list_head,
-    loff_t, map_bh, page, path, readahead_control, sector_t, u32_, user_namespace,
+    loff_t, map_bh, mpage_readahead, page, path, readahead_control, sector_t, u32_, user_namespace,
     writeback_control,
 };
 use kernel::c_types;
@@ -118,8 +118,9 @@ extern "C" fn exfat_readpages(
     todo!("TODO exfat_readpages");
 }
 
-extern "C" fn exfat_readahead(arg1: *mut readahead_control) {
-    todo!("TODO exfat_readahead");
+extern "C" fn exfat_readahead(rac: *mut readahead_control) {
+    // SAFETY: TODO
+    unsafe { mpage_readahead(rac, Some(exfat_get_block)) };
 }
 
 extern "C" fn exfat_write_begin(
@@ -158,14 +159,14 @@ extern "C" fn exfat_get_block(
     inode: *mut Inode,
     iblock: sector_t,
     bh_result: *mut BufferHead,
-    create: bool,
+    create: c_int,
 ) -> c_int {
     let inode = unsafe { &mut *inode };
     let inode = inode.to_info_mut();
     let sb = inode.vfs_inode.i_sb;
     let sbi = take_sb(&sb);
     let bh_result = unsafe { &mut *bh_result };
-    from_kernel_result! { get_block(inode, sbi, iblock, bh_result, create) }
+    from_kernel_result! { get_block(inode, sbi, iblock, bh_result, create != 0) }
 }
 
 fn get_block(
