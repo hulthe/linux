@@ -14,7 +14,7 @@ const MIN_BYTES_PER_SECTOR_SHIFT: u8 = 9;
 const MAX_BYTES_PER_SECTOR_SHIFT: u8 = 9;
 
 // Cluster 0 and 1 are reserved, the first cluster is 2 in the cluster heap.
-const EXFAT_RESERVED_CLUSTERS: u32 = 2;
+pub(crate) const EXFAT_RESERVED_CLUSTERS: u32 = 2;
 
 // 2^5=32 is the number of bytes per directory entry.
 const DENTRY_SHIFT: u32 = 5;

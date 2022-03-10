@@ -40,6 +40,7 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/fs_parser.h>
+#include <linux/buffer_head.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -683,6 +684,15 @@ bool rust_helper_d_unhashed(const struct dentry *dentry)
 	return d_unhashed(dentry);
 }
 EXPORT_SYMBOL_GPL(rust_helper_d_unhashed);
+
+void rust_helper_map_bh(struct buffer_head *bh, struct super_block *sb, sector_t block)
+{
+	set_buffer_mapped(bh);
+	bh->b_bdev = sb->s_bdev;
+	bh->b_blocknr = block;
+	bh->b_size = sb->s_blocksize;
+}
+EXPORT_SYMBOL_GPL(rust_helper_map_bh);
 
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type

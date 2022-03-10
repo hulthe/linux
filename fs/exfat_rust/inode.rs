@@ -13,8 +13,8 @@ use crate::EXFAT_ROOT_INO;
 use core::mem::align_of;
 use core::ptr::{null_mut, NonNull};
 use kernel::bindings::{
-    __insert_inode_hash, current_time, i_size_read, i_size_write, igrab, inode_inc_iversion,
-    inode_init_once, inode_set_iversion, iunique, new_inode, prandom_u32, set_nlink,
+    self, __insert_inode_hash, current_time, i_size_read, i_size_write, igrab, inode_inc_iversion,
+    inode_init_once, inode_set_iversion, iunique, loff_t, new_inode, prandom_u32, set_nlink,
     ___GFP_DIRECT_RECLAIM, ___GFP_IO, ___GFP_KSWAPD_RECLAIM,
 };
 use kernel::linked_list::{GetLinks, GetLinksWrapped, Links, List, Wrapper};
@@ -330,6 +330,7 @@ impl PtrInit for InodeInfo {
 pub(crate) trait InodeExt {
     fn to_info(&self) -> &InodeInfo;
     fn to_info_mut(&mut self) -> &mut InodeInfo;
+    fn i_size_read(&self) -> loff_t;
 }
 
 impl InodeExt for Inode {
@@ -343,6 +344,10 @@ impl InodeExt for Inode {
         let inode_info = self as *mut _ as *mut InodeInfo;
         // SAFETY: TODO
         unsafe { &mut *inode_info }
+    }
+
+    fn i_size_read(&self) -> loff_t {
+        unsafe { bindings::i_size_read(self) }
     }
 }
 
