@@ -3,9 +3,10 @@ use crate::inode::{Inode, InodeExt, InodeInfo};
 use crate::superblock::{take_sb, SuperBlockExt, SuperBlockInfo};
 use core::cmp::min;
 use kernel::bindings::{
-    address_space, address_space_operations as AddressSpaceOperations, buffer_head as BufferHead,
-    dentry, file, iattr, inode_operations as InodeOperations, iov_iter, kiocb, kstat, list_head,
-    loff_t, map_bh, mpage_readahead, page, path, readahead_control, sector_t, u32_, user_namespace,
+    address_space, address_space_operations as AddressSpaceOperations, buffer_delay,
+    buffer_head as BufferHead, clear_buffer_delay, dentry, file, iattr,
+    inode_operations as InodeOperations, iov_iter, kiocb, kstat, list_head, loff_t, map_bh,
+    mpage_readahead, page, path, readahead_control, sector_t, u32_, user_namespace,
     writeback_control,
 };
 use kernel::c_types;
@@ -238,9 +239,11 @@ fn get_block(
     //		}
     //	}
 
-    //if buffer_delay(bh_result) {
-    //    clear_buffer_delay(bh_result);
-    //}
+    unsafe {
+        if buffer_delay(bh_result) {
+            clear_buffer_delay(bh_result);
+        }
+    }
 
     unsafe { map_bh(bh_result, sb, phys) };
 
