@@ -6,7 +6,7 @@ use kernel::bindings::{
 use kernel::c_types;
 
 pub(crate) static FILE_INODE_OPERATIONS: InodeOperations = InodeOperations {
-    getattr: Some(exfat_getattr),
+    getattr: None, // Doesn't appear like we need this, implement if necessary
 
     // Probably won't need for read-only?
     setattr: Some(exfat_setattr),

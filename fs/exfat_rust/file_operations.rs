@@ -9,7 +9,7 @@ pub(crate) static mut FILE_OPERATIONS: FileOperations = FileOperations {
     llseek: Some(exfat_llseek),
     read_iter: Some(exfat_read_iter),
     unlocked_ioctl: Some(exfat_unlocked_ioctl),
-    compat_ioctl: Some(compat_ioctl),
+    compat_ioctl: Some(exfat_compat_ioctl),
     mmap: Some(exfat_mmap),
     fsync: Some(exfat_fsync),
     splice_read: Some(exfat_splice_read),
