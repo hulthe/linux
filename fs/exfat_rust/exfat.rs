@@ -1,4 +1,3 @@
-//! A Rust implementation of the exFAT filesystem
 mod allocation_bitmap;
 mod boot_sector;
 mod charsets;

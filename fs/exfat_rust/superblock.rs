@@ -1,6 +1,8 @@
 use crate::allocation_bitmap::AllocationBitmap;
+use crate::boot_sector::EXFAT_RESERVED_CLUSTERS;
+use crate::fat::ClusterIndex;
 use crate::inode::InodeHashTable;
-use kernel::bindings::{kgid_t, kuid_t};
+use kernel::bindings::{kgid_t, kuid_t, sector_t};
 use kernel::c_types;
 use kernel::prelude::*;
 use kernel::sync::{Mutex, SpinLock};
@@ -53,12 +55,26 @@ pub(crate) struct SbState<'a> {
 }
 
 pub(crate) trait SuperBlockExt {
+    fn sectors_to_bytes(&self, sectors: u64) -> u64;
     fn bytes_to_sectors(&self, bytes: u64) -> u64;
 }
 
 impl SuperBlockExt for SuperBlock {
+    fn sectors_to_bytes(&self, sectors: u64) -> u64 {
+        sectors << self.s_blocksize_bits
+    }
+
     fn bytes_to_sectors(&self, bytes: u64) -> u64 {
         ((bytes - 1) >> (self.s_blocksize_bits)) + 1
+    }
+}
+
+impl SbInfo {
+    pub(crate) fn cluster_to_sector(&self, cluster: ClusterIndex) -> sector_t {
+        let sect_per_clus_bits = self.boot_sector_info.sect_per_clus_bits;
+        let data_start_sector = self.boot_sector_info.data_start_sector;
+        (((cluster - EXFAT_RESERVED_CLUSTERS) as sector_t) << sect_per_clus_bits)
+            + data_start_sector
     }
 }
 
