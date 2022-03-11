@@ -191,6 +191,7 @@ impl Default for ExfatMountOptions {
 // const EXFAT_DEFAULT_IOCHARSET: &[u8] = #[cfg(CONFIG_EXFAT_DEFAULT_IOCHARSET)];
 
 impl ExfatMountOptions {
+    #[allow(dead_code)]
     pub(crate) fn free_iocharset(&mut self) {
         todo!("Free iocharset");
     }

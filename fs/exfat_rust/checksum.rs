@@ -6,6 +6,7 @@ pub(crate) enum ChecksumType {
     Default = 2,
 }
 
+#[allow(dead_code)]
 pub(crate) fn calc_checksum_16(data: &[u8], mut checksum: u16, checksum_type: ChecksumType) -> u16 {
     let calc = |byte: u8| checksum = ((checksum << 15) | (checksum >> 1)).wrapping_add(byte as u16);
 

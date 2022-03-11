@@ -233,13 +233,13 @@ impl InodeInfo {
             // regular file
             self.vfs_inode.i_generation |= 1; // set the lowest bit
             self.vfs_inode.i_mode = dir.attrs.to_unix(0o777, sb_info);
-            self.vfs_inode.i_op = unsafe { &FILE_INODE_OPERATIONS as *const _ };
+            self.vfs_inode.i_op = &FILE_INODE_OPERATIONS as *const _;
             // SAFETY: TODO
             self.vfs_inode.__bindgen_anon_3.i_fop = unsafe { &FILE_OPERATIONS as *const _ };
 
             let i_mapping = unsafe { &mut *self.vfs_inode.i_mapping };
             // SAFETY: TODO
-            i_mapping.a_ops = unsafe { &ADDRESS_OPERATIONS as *const _ };
+            i_mapping.a_ops = &ADDRESS_OPERATIONS as *const _;
             i_mapping.nrpages = 0;
         }
 

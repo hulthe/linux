@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::superblock::SbInfo;
 use kernel::bindings::{utf16_endian_UTF16_HOST_ENDIAN, utf8s_to_utf16s};
 use kernel::endian::u16le;
@@ -71,7 +73,7 @@ impl UTF16String {
         }
 
         // TODO: Implement
-        let mut lossy = NlsNameMode::NoLossy as u32;
+        let mut _lossy = NlsNameMode::NoLossy as u32;
 
         const UPPERCASE_NAME_LEN: usize = MAX_NAME_LEN as usize + 1;
         let mut uppercase_name = [u16le::from(0); UPPERCASE_NAME_LEN];
@@ -81,7 +83,7 @@ impl UTF16String {
         for i in 0..length {
             let char16: u16 = utf16_string[i];
             if char16 < 0x0020 || BAD_UNICODE_CHARACTERS.contains(&char16) {
-                lossy |= NlsNameMode::Lossy as u32;
+                _lossy |= NlsNameMode::Lossy as u32;
             }
 
             uppercase_name[i] = to_upper(sb_info, char16)?.into();
