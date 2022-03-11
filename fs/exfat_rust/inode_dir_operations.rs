@@ -63,7 +63,7 @@ fn find_dir<'a>(
 // exfat_resolve_path_for_lookup in namei.c
 fn resolve_path<'a>(
     _sb_info: &'a SbInfo,
-    sb_state: &'a SbState<'a>,
+    _sb_state: &'a SbState<'a>,
     path: String,
 ) -> Result<String> {
     // Remove trailing periods.

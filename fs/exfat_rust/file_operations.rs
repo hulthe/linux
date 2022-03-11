@@ -1,8 +1,8 @@
 use core::ptr::null_mut;
 use kernel::bindings::{
     file, file_operations as FileOperations, generic_file_llseek, generic_file_mmap,
-    generic_file_read_iter, generic_file_splice_read, generic_file_write_iter, iov_iter,
-    iter_file_splice_write, kiocb, loff_t, pipe_inode_info, vm_area_struct,
+    generic_file_read_iter, generic_file_splice_read, generic_file_write_iter,
+    iter_file_splice_write, loff_t,
 };
 use kernel::c_types;
 
@@ -48,63 +48,27 @@ pub(crate) static mut FILE_OPERATIONS: FileOperations = FileOperations {
     fadvise: None,
 };
 
-extern "C" fn exfat_llseek(arg1: *mut file, arg2: loff_t, arg3: c_types::c_int) -> loff_t {
-    todo!("TODO exfat_llseek");
-}
-
-extern "C" fn exfat_read_iter(arg1: *mut kiocb, arg2: *mut iov_iter) -> isize {
-    todo!("TODO exfat_read_iter");
-}
-
-extern "C" fn exfat_write_iter(arg1: *mut kiocb, arg2: *mut iov_iter) -> isize {
-    todo!("TODO exfat_write_iter");
-}
-
 extern "C" fn exfat_unlocked_ioctl(
-    arg1: *mut file,
-    arg2: c_types::c_uint,
-    arg3: c_types::c_ulong,
+    _arg1: *mut file,
+    _arg2: c_types::c_uint,
+    _arg3: c_types::c_ulong,
 ) -> c_types::c_long {
     todo!("TODO exfat_unlocked_ioctl");
 }
 
 extern "C" fn exfat_compat_ioctl(
-    arg1: *mut file,
-    arg2: c_types::c_uint,
-    arg3: c_types::c_ulong,
+    _arg1: *mut file,
+    _arg2: c_types::c_uint,
+    _arg3: c_types::c_ulong,
 ) -> c_types::c_long {
     todo!("TODO exfat_compat_ioctl");
 }
 
-extern "C" fn exfat_mmap(arg1: *mut file, arg2: *mut vm_area_struct) -> c_types::c_int {
-    todo!("TODO exfat_mmap");
-}
-
 extern "C" fn exfat_fsync(
-    arg1: *mut file,
-    arg2: loff_t,
-    arg3: loff_t,
-    datasync: c_types::c_int,
+    _arg1: *mut file,
+    _arg2: loff_t,
+    _arg3: loff_t,
+    _datasync: c_types::c_int,
 ) -> c_types::c_int {
     todo!("TODO exfat_fsync");
-}
-
-extern "C" fn exfat_splice_read(
-    arg1: *mut file,
-    arg2: *mut loff_t,
-    arg3: *mut pipe_inode_info,
-    arg4: usize,
-    arg5: c_types::c_uint,
-) -> isize {
-    todo!("TODO exfat_splice_read");
-}
-
-extern "C" fn exfat_splice_write(
-    arg1: *mut pipe_inode_info,
-    arg2: *mut file,
-    arg3: *mut loff_t,
-    arg4: usize,
-    arg5: c_types::c_uint,
-) -> isize {
-    todo!("TODO exfat_splice_write");
 }

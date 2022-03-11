@@ -43,20 +43,22 @@ pub(crate) static FILE_INODE_OPERATIONS: InodeOperations = InodeOperations {
     update_time: None,
 };
 
+#[allow(dead_code)]
 extern "C" fn exfat_getattr(
-    arg1: *mut user_namespace,
-    arg2: *const path,
-    arg3: *mut kstat,
-    arg4: u32_,
-    arg5: c_types::c_uint,
+    _arg1: *mut user_namespace,
+    _arg2: *const path,
+    _arg3: *mut kstat,
+    _arg4: u32_,
+    _arg5: c_types::c_uint,
 ) -> c_types::c_int {
     todo!("TODO exfat_getattr");
 }
 
+#[allow(dead_code)]
 extern "C" fn exfat_setattr(
-    arg1: *mut user_namespace,
-    arg2: *mut dentry,
-    arg3: *mut iattr,
+    _arg1: *mut user_namespace,
+    _arg2: *mut dentry,
+    _arg3: *mut iattr,
 ) -> c_types::c_int {
     todo!("TODO exfat_setattr");
 }
@@ -91,30 +93,30 @@ pub(crate) static ADDRESS_OPERATIONS: AddressSpaceOperations = AddressSpaceOpera
     swap_deactivate: None,
 };
 
-extern "C" fn exfat_writepage(page: *mut page, wbc: *mut writeback_control) -> c_types::c_int {
+extern "C" fn exfat_writepage(_page: *mut page, _wbc: *mut writeback_control) -> c_types::c_int {
     todo!("TODO exfat_writepage");
 }
 
-extern "C" fn exfat_readpage(arg1: *mut file, arg2: *mut page) -> c_types::c_int {
+extern "C" fn exfat_readpage(_arg1: *mut file, _arg2: *mut page) -> c_types::c_int {
     todo!("TODO exfat_readpage");
 }
 
 extern "C" fn exfat_writepages(
-    arg1: *mut address_space,
-    arg2: *mut writeback_control,
+    _arg1: *mut address_space,
+    _arg2: *mut writeback_control,
 ) -> c_types::c_int {
     todo!("TODO exfat_writepages");
 }
 
-extern "C" fn exfat_set_page_dirty(page: *mut page) -> c_types::c_int {
+extern "C" fn exfat_set_page_dirty(_page: *mut page) -> c_types::c_int {
     todo!("TODO exfat_set_page_dirty");
 }
 
 extern "C" fn exfat_readpages(
-    filp: *mut file,
-    mapping: *mut address_space,
-    pages: *mut list_head,
-    nr_pages: c_types::c_uint,
+    _filp: *mut file,
+    _mapping: *mut address_space,
+    _pages: *mut list_head,
+    _nr_pages: c_types::c_uint,
 ) -> c_types::c_int {
     todo!("TODO exfat_readpages");
 }
@@ -125,34 +127,34 @@ extern "C" fn exfat_readahead(rac: *mut readahead_control) {
 }
 
 extern "C" fn exfat_write_begin(
-    arg1: *mut file,
-    mapping: *mut address_space,
-    pos: loff_t,
-    len: c_types::c_uint,
-    flags: c_types::c_uint,
-    pagep: *mut *mut page,
-    fsdata: *mut *mut c_types::c_void,
+    _arg1: *mut file,
+    _mapping: *mut address_space,
+    _pos: loff_t,
+    _len: c_types::c_uint,
+    _flags: c_types::c_uint,
+    _pagep: *mut *mut page,
+    _fsdata: *mut *mut c_types::c_void,
 ) -> c_types::c_int {
     todo!("TODO exfat_write_begin");
 }
 
 extern "C" fn exfat_write_end(
-    arg1: *mut file,
-    mapping: *mut address_space,
-    pos: loff_t,
-    len: c_types::c_uint,
-    copied: c_types::c_uint,
-    page: *mut page,
-    fsdata: *mut c_types::c_void,
+    _arg1: *mut file,
+    _mapping: *mut address_space,
+    _pos: loff_t,
+    _len: c_types::c_uint,
+    _copied: c_types::c_uint,
+    _page: *mut page,
+    _fsdata: *mut c_types::c_void,
 ) -> c_types::c_int {
     todo!("TODO exfat_readahead");
 }
 
-extern "C" fn exfat_bmap(arg1: *mut address_space, arg2: sector_t) -> sector_t {
+extern "C" fn exfat_bmap(_arg1: *mut address_space, _arg2: sector_t) -> sector_t {
     todo!("TODO exfat_readahead");
 }
 
-extern "C" fn exfat_direct_io(arg1: *mut kiocb, iter: *mut iov_iter) -> isize {
+extern "C" fn exfat_direct_io(_arg1: *mut kiocb, _iter: *mut iov_iter) -> isize {
     todo!("TODO exfat_readahead");
 }
 
@@ -217,7 +219,8 @@ fn get_block(
 
     let phys = sb_info.cluster_to_sector(cluster) + sec_offset;
     let mapped_blocks = sb_info.boot_sector_info.sect_per_clus as u64 - sec_offset;
-    let max_blocks = min(mapped_blocks, max_blocks);
+    // TODO: Remove _ when used again.
+    let _max_blocks = min(mapped_blocks, max_blocks);
 
     //	/* Treat newly added block / cluster */
     //	if (iblock < last_block)

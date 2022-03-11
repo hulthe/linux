@@ -64,7 +64,7 @@ static mut FS_TYPE: FileSystemType = FileSystemType {
     i_mutex_dir_key: LockClassKey {},
 };
 
-pub(crate) extern "C" fn exfat_reconfigure(fc: *mut fs_context) -> c_int {
+pub(crate) extern "C" fn exfat_reconfigure(_fc: *mut fs_context) -> c_int {
     todo!("exfat_reconfigure"); // TODO: implement me
 }
 
@@ -78,10 +78,10 @@ pub(crate) extern "C" fn exfat_free(fc: *mut fs_context) {
     // TODO: Finish later.
     return;
 
-    let sbi = get_exfat_sb_from_fc!(fc);
-    sbi.info.options.free_iocharset();
+    // let sbi = get_exfat_sb_from_fc!(fc);
+    // sbi.info.options.free_iocharset();
     // kfree(sbi);
-    todo!("exfat_free");
+    // todo!("exfat_free");
 
     // let sbi: &mut SuperBlockInfo<'_> = get_exfat_sb_from_fc!(fc);
 }
