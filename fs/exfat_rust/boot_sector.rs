@@ -59,9 +59,8 @@ pub(crate) fn read_boot_sector(sbi: &mut SuperBlockInfo<'_>) -> Result<()> {
     let sb_info = &mut sbi.info;
     let sb = &mut sbi.state.as_mut().unwrap().get_mut().sb;
 
-    // TODO: We probably want to reimplement this function in Rust later on
-    // Set block size to read super block
-    // SAFETY: Lol errrrrh... It's C, what do you expect?
+    // SAFETY: We are never the sole owner of sb which we will
+    // just have to bear in mind at all times.
     unsafe { sb_min_blocksize(*sb, 512) };
 
     // The boot sector should be the first on the disk, read sector 0.
@@ -71,6 +70,7 @@ pub(crate) fn read_boot_sector(sbi: &mut SuperBlockInfo<'_>) -> Result<()> {
     })?;
 
     let b_data = bh.raw_bytes() as *const BootRegion;
+    // SAFETY: BootRegion is repr(C) and only contains integers so assuming that b_data has correct length, this should be safe.
     let boot_region = unsafe { &*b_data };
 
     // TODO: Ensure conversion from little endian.
