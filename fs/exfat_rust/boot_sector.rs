@@ -59,8 +59,7 @@ pub(crate) fn read_boot_sector(sbi: &mut SuperBlockInfo<'_>) -> Result<()> {
     let sb_info = &mut sbi.info;
     let sb = &mut sbi.state.as_mut().unwrap().get_mut().sb;
 
-    // SAFETY: We are never the sole owner of sb which we will
-    // just have to bear in mind at all times.
+    // SAFETY: We have a mutable reference to sb thus mutations of it made by the kernel is safe.
     unsafe { sb_min_blocksize(*sb, 512) };
 
     // The boot sector should be the first on the disk, read sector 0.
