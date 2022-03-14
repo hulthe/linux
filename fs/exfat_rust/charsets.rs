@@ -46,7 +46,10 @@ impl UTF16String {
 
         let nls_string_bytes = nls_string.as_bytes();
 
-        // SAFETY: TODO
+        // SAFETY: The function returns a negative number if an error occured
+        // otherwise, it should write the utf16 variant of the string to utf16_string.
+        // nls_string_bytes: the function should not store a copy of the reference and thus it does not matter if it is dropped after this point.
+        // utf16_string: the contract with the function is that if no error is returned, utf16_string SHOULD contain the converted value.
         let length_or_err = unsafe {
             utf8s_to_utf16s(
                 nls_string_bytes.as_ptr(),

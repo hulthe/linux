@@ -146,6 +146,7 @@ impl TimeStamp {
         let year = 1980 + extract_bits(YEAR_POS, date);
 
         let mut ts = timespec64 {
+            // SAFETY: Function only does simple arithmetic operations.
             tv_sec: unsafe { mktime64(year, month, day, hour, minute, seconds) },
             tv_nsec: 0,
         };
