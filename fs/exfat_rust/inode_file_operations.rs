@@ -65,7 +65,6 @@ extern "C" fn exfat_setattr(
 
 pub(crate) static ADDRESS_OPERATIONS: AddressSpaceOperations = AddressSpaceOperations {
     readpage: Some(exfat_readpage),
-    readpages: Some(exfat_readpages),
     readahead: Some(exfat_readahead),
 
     bmap: Some(exfat_bmap),
@@ -79,6 +78,7 @@ pub(crate) static ADDRESS_OPERATIONS: AddressSpaceOperations = AddressSpaceOpera
     set_page_dirty: Some(exfat_set_page_dirty),
 
     // Not implemented in exfat either, ignore
+    readpages: None,
     invalidatepage: None,
     releasepage: None,
     freepage: None,
@@ -110,15 +110,6 @@ extern "C" fn exfat_writepages(
 
 extern "C" fn exfat_set_page_dirty(_page: *mut page) -> c_types::c_int {
     todo!("TODO exfat_set_page_dirty");
-}
-
-extern "C" fn exfat_readpages(
-    _filp: *mut file,
-    _mapping: *mut address_space,
-    _pages: *mut list_head,
-    _nr_pages: c_types::c_uint,
-) -> c_types::c_int {
-    todo!("TODO exfat_readpages");
 }
 
 extern "C" fn exfat_readahead(rac: *mut readahead_control) {
