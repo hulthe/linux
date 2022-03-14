@@ -70,8 +70,13 @@ fn load_upcase_table(
     let sector_size = sb_state.sb.s_blocksize as usize;
 
     // unclear what type the UTF16 string should be
-    // TODO: this might overflow the stack...
-    let mut upcase_table = Box::try_new([0u16; UTBL_COUNT])?;
+    // TODO: find a better way to initialzie upcase table
+    //let mut upcase_table = Box::try_new([0u16; UTBL_COUNT])?; // might overflow stack
+    let mut upcase_table = Vec::try_with_capacity(UTBL_COUNT)?;
+    for _ in 0..UTBL_COUNT {
+        upcase_table.try_push(0u16)?;
+    }
+    let mut upcase_table = upcase_table.try_into_boxed_slice()?;
 
     let mut unicode_index = 0;
     let mut checksum = 0;
