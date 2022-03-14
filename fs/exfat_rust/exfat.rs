@@ -16,6 +16,7 @@ mod inode_file_operations;
 mod kmem_cache;
 mod macros;
 mod math;
+mod super_operations;
 mod superblock;
 mod upcase;
 
@@ -28,8 +29,8 @@ use kernel::bindings::{
     fs_context_operations as FsContextOps, fs_parameter_spec, get_tree_bdev,
     hlist_head as HlistHead, inode as Inode, inode_set_iversion, kill_block_super,
     lock_class_key as LockClassKey, new_inode, register_filesystem, request_queue as RequestQueue,
-    super_block, super_operations as SuperOperations, unregister_filesystem, EXFAT_SUPER_MAGIC,
-    FS_REQUIRES_DEV, NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME,
+    super_block, unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV, NSEC_PER_MSEC,
+    QUEUE_FLAG_DISCARD, SB_NODIRATIME,
 };
 use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
@@ -101,36 +102,6 @@ extern "C" fn exfat_get_tree(fc: *mut fs_context) -> c_types::c_int {
     return unsafe { get_tree_bdev(fc, Some(exfat_fill_super)) };
 }
 
-static mut EXFAT_SOPS: SuperOperations = SuperOperations {
-    alloc_inode: Some(inode::alloc_inode),
-    free_inode: None,    // TODO
-    write_inode: None,   // TODO
-    evict_inode: None,   // TODO
-    put_super: None,     // TODO
-    sync_fs: None,       // TODO
-    statfs: None,        // TODO
-    show_options: None,  // TODO
-    destroy_inode: None, // TODO (Not in C version but we'll need it to ensure that our destructor runs properly)
-
-    // Not implemented in C version
-    dirty_inode: None,
-    drop_inode: None,
-    freeze_super: None,
-    freeze_fs: None,
-    thaw_super: None,
-    unfreeze_fs: None,
-    remount_fs: None,
-    umount_begin: None,
-    show_devname: None,
-    show_path: None,
-    show_stats: None,
-    quota_read: None,
-    quota_write: None,
-    get_dquots: None,
-    nr_cached_objects: None,
-    free_cached_objects: None,
-};
-
 /* Jan 1 GMT 00:00:00 1980 */
 const EXFAT_MIN_TIMESTAMP_SECS: i64 = 315532800;
 /* Dec 31 GMT 23:59:59 2107 */
@@ -170,7 +141,7 @@ fn fill_super(sb: &mut SuperBlock) -> Result {
 
     sb.s_flags |= SB_NODIRATIME as u64;
     sb.s_magic = EXFAT_SUPER_MAGIC as u64;
-    sb.s_op = unsafe { &EXFAT_SOPS as *const _ };
+    sb.s_op = unsafe { &super_operations::EXFAT_SOPS as *const _ };
 
     sb.s_time_gran = 10 * NSEC_PER_MSEC;
     sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
