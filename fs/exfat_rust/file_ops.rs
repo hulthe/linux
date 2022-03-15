@@ -2,8 +2,8 @@ use crate::directory::DirEntryReader;
 use crate::from_kernel_result;
 use crate::inode::{get_inode, Inode, InodeExt};
 use crate::superblock::take_sb;
+use crate::zeroed;
 use crate::EXFAT_ROOT_INO;
-use core::ptr::null_mut;
 use kernel::bindings::{
     __generic_file_fsync, blkdev_issue_flush, dir_context as DirContext, dir_emit, dir_emit_dots,
     file as File, file_operations as FileOperations, generic_file_llseek, generic_read_dir, iput,
@@ -20,33 +20,8 @@ pub(crate) static mut DIR_OPERATIONS: FileOperations = FileOperations {
     compat_ioctl: None,   // TODO
     fsync: Some(file_fsync),
 
-    // Should be none
-    owner: null_mut(),
-    write: None,
-    read_iter: None,
-    write_iter: None,
-    iopoll: None,
-    iterate_shared: None,
-    poll: None,
-    mmap: None,
-    mmap_supported_flags: 0,
-    open: None,
-    flush: None,
-    release: None,
-    fasync: None,
-    lock: None,
-    sendpage: None,
-    get_unmapped_area: None,
-    check_flags: None,
-    flock: None,
-    splice_write: None,
-    splice_read: None,
-    setlease: None,
-    fallocate: None,
-    show_fdinfo: None,
-    copy_file_range: None,
-    remap_file_range: None,
-    fadvise: None,
+    // SAFETY: file comes from C and can be safely zeroed
+    ..unsafe { zeroed!(FileOperations) }
 };
 
 extern "C" fn file_fsync(file: *mut File, start: loff_t, end: loff_t, datasync: c_int) -> c_int {

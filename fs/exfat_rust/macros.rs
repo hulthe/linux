@@ -39,3 +39,14 @@ macro_rules! from_kernel_result {
         }
     }};
 }
+
+// TODO: remove in favor of core::mem::zeroed when const is stable
+/// Returns the value of type `T` represented by the all-zero byte pattern.
+///
+/// SAFETY: Caller has to make sure that the all-zero byte pattern represents a valid value of T.
+#[macro_export]
+macro_rules! zeroed {
+    ($t: ident) => {{
+        ::core::mem::transmute::<_, $t>([0u8; ::core::mem::size_of::<$t>()])
+    }};
+}

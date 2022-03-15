@@ -23,17 +23,16 @@ mod upcase;
 use crate::allocation_bitmap::load_allocation_bitmap;
 use crate::inode::{InodeExt, INODE_ALLOC_CACHE};
 use crate::superblock::{ExfatMountOptions, SbInfo, SbState, SuperBlock, SuperBlockInfo};
-use core::mem::{size_of, transmute, MaybeUninit};
+use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::ptr::null_mut;
 use fs_parameter::{exfat_parse_param, EXFAT_PARAMETERS};
 use kernel::bindings::{
     __insert_inode_hash, d_make_root, file_system_type as FileSystemType, fs_context as FsContext,
-    fs_context_operations as FsContextOps, fs_parameter_spec, get_tree_bdev,
-    hlist_head as HlistHead, inode as Inode, inode_set_iversion, kill_block_super,
-    lock_class_key as LockClassKey, new_inode, register_filesystem, request_queue as RequestQueue,
-    unregister_filesystem, CONFIG_EXFAT_DEFAULT_IOCHARSET, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV,
-    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME,
+    fs_context_operations as FsContextOps, fs_parameter_spec, get_tree_bdev, inode as Inode,
+    inode_set_iversion, kill_block_super, new_inode, register_filesystem,
+    request_queue as RequestQueue, unregister_filesystem, CONFIG_EXFAT_DEFAULT_IOCHARSET,
+    EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV, NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME,
 };
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
@@ -52,18 +51,8 @@ static mut FS_TYPE: FileSystemType = FileSystemType {
     kill_sb: Some(kill_block_super),
     fs_flags: FS_REQUIRES_DEV as i32,
 
-    // seems we can leave these as default
-    mount: None,
-    next: null_mut(),
-    fs_supers: empty_hlist(),
-    s_lock_key: empty_lock_class_key(),
-    s_umount_key: empty_lock_class_key(),
-    s_vfs_rename_key: empty_lock_class_key(),
-    s_writers_key: [empty_lock_class_key(); 3],
-    i_lock_key: empty_lock_class_key(),
-    i_mutex_key: empty_lock_class_key(),
-    invalidate_lock_key: empty_lock_class_key(),
-    i_mutex_dir_key: empty_lock_class_key(),
+    // SAFETY: file comes from C and can be safely zeroed
+    ..unsafe { zeroed!(FileSystemType) }
 };
 
 pub(crate) extern "C" fn exfat_reconfigure(_fc: *mut FsContext) -> c_int {
@@ -92,9 +81,8 @@ static mut CONTEXT_OPS: FsContextOps = FsContextOps {
     get_tree: Some(exfat_get_tree),
     reconfigure: Some(exfat_reconfigure),
 
-    // not needed?
-    dup: None,
-    parse_monolithic: None,
+    // SAFETY: file comes from C and can be safely zeroed
+    ..unsafe { zeroed!(FsContextOps) }
 };
 
 extern "C" fn exfat_get_tree(fc: *mut FsContext) -> c_int {
@@ -263,15 +251,6 @@ pub extern "C" fn init_fs_context(fc: *mut FsContext) -> c_int {
         pr_info!("init_fs_context exit");
         Ok(())
     }
-}
-
-const fn empty_hlist() -> HlistHead {
-    HlistHead { first: null_mut() }
-}
-
-const fn empty_lock_class_key() -> LockClassKey {
-    // SAFETY: type comes from C and can be safely zeroed
-    unsafe { transmute([0u8; size_of::<LockClassKey>()]) }
 }
 
 module! {
