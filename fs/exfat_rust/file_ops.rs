@@ -1,6 +1,6 @@
 use crate::directory::DirEntryReader;
 use crate::from_kernel_result;
-use crate::inode::{get_inode, Inode, InodeExt};
+use crate::inode::{Inode, InodeExt};
 use crate::superblock::take_sb;
 use crate::zeroed;
 use crate::EXFAT_ROOT_INO;
@@ -82,7 +82,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
                 Some(entry) => entry?,
             };
 
-            let inum = if let Some(node) = get_inode(&sbi.inode_hashtable, dir_entry.cluster, dir_entry.index) {
+            let inum = if let Some(node) = sbi.inode_hashtable.lock().get(dir_entry.cluster, dir_entry.index) {
                 // SAFETY: TODO
                 unsafe { iput(node as *mut _ as *mut Inode); }
                 node.vfs_inode.i_ino

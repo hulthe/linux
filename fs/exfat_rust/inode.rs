@@ -1,3 +1,7 @@
+pub(crate) mod hash_table;
+
+pub(crate) use self::hash_table::InodeHashTable;
+
 use crate::directory::file::{FileAttributes, ROOT_FILE_ATTRIBUTE};
 use crate::directory::{DirEntry, ExFatDirEntryKind, ExFatDirEntryReader};
 use crate::fat::FatChainReader;
@@ -13,11 +17,11 @@ use crate::EXFAT_ROOT_INO;
 use core::mem::align_of;
 use core::ptr::{null_mut, NonNull};
 use kernel::bindings::{
-    self, __insert_inode_hash, current_time, i_size_read, i_size_write, igrab, inode_inc_iversion,
+    self, __insert_inode_hash, current_time, i_size_read, i_size_write, inode_inc_iversion,
     inode_init_once, inode_set_iversion, iunique, loff_t, new_inode, prandom_u32, set_nlink,
     ___GFP_DIRECT_RECLAIM, ___GFP_IO, ___GFP_KSWAPD_RECLAIM,
 };
-use kernel::linked_list::{GetLinks, GetLinksWrapped, Links, List, Wrapper};
+use kernel::linked_list::Links;
 use kernel::sync::SpinLock;
 use kernel::{Error, Result};
 
@@ -27,108 +31,8 @@ pub(crate) type Inode = kernel::bindings::inode;
 /// Cache allocations of InodeInfo:s
 pub(crate) static INODE_ALLOC_CACHE: KMemCache<InodeInfo> = KMemCache::new();
 
-const EXFAT_HASH_BITS: usize = 8;
-const EXFAT_HASH_SIZE: usize = 1 << EXFAT_HASH_BITS;
-
-#[allow(dead_code)]
-pub(crate) struct InodeHashTable {
-    inner: [List<InodeInfo>; EXFAT_HASH_SIZE],
-}
-
-pub(crate) struct Fuck<T> {
-    ptr: NonNull<T>,
-}
-
-impl<T> Wrapper<T> for Fuck<T> {
-    fn into_pointer(self) -> NonNull<T> {
-        self.ptr
-    }
-
-    unsafe fn from_pointer(ptr: NonNull<T>) -> Self {
-        Self { ptr }
-    }
-
-    fn as_ref(&self) -> &T {
-        unsafe { &*self.ptr.as_ptr() }
-    }
-}
-
-impl GetLinks for InodeInfo {
-    type EntryType = Self;
-
-    fn get_links(data: &Self) -> &Links<Self> {
-        &data.inode_cache_list
-    }
-}
-
-impl GetLinksWrapped for InodeInfo {
-    type Wrapped = Fuck<InodeInfo>;
-}
-
-impl Default for InodeHashTable {
-    fn default() -> Self {
-        const EMPTY: List<InodeInfo> = List::new();
-        Self {
-            inner: [EMPTY; EXFAT_HASH_SIZE],
-        }
-    }
-}
-
 pub(crate) fn inode_unique_num(cluster: u32, entry: u32) -> u64 {
     (entry as u64) << u32::BITS | cluster as u64
-}
-
-pub(crate) fn get_inode(
-    inode_hashtable: &SpinLock<InodeHashTable>,
-    cluster_index: u32,
-    dir_index: u32,
-) -> Option<&'static mut InodeInfo> {
-    let hashtable = inode_hashtable.lock();
-    let hashtable = &hashtable.inner;
-
-    // TODO: actually hash the key
-    let key = inode_unique_num(cluster_index, dir_index);
-    let hash = key;
-
-    let bucket = &hashtable[hash as usize % hashtable.len()];
-
-    let mut cursor = bucket.cursor_front();
-
-    let key = (cluster_index, dir_index);
-    while let Some(inode) = cursor.current() {
-        cursor.move_next();
-
-        let entry_key = (inode.dir_cluster, inode.entry_index);
-        if entry_key == key {
-            let inode = unsafe { igrab(inode as *const _ as *mut Inode) };
-            let inode = inode as *mut InodeInfo;
-
-            // if igrab returns null, the C version just continues the loop.
-            // that doesn't seem like the correct behaviour.
-            // TODO: figure out if we can return regardless.
-            // return unsafe { inode.as_mut() };
-            if let Some(inode) = unsafe { inode.as_mut() } {
-                return Some(inode);
-            }
-        }
-    }
-
-    None
-}
-
-pub(crate) fn insert_inode(inode_hashtable: &SpinLock<InodeHashTable>, inode: &mut InodeInfo) {
-    let mut hashtable = inode_hashtable.lock();
-    let hashtable = &mut hashtable.inner;
-
-    // TODO: actually hash the key
-    let key = inode_unique_num(inode.dir_cluster, inode.entry_index);
-    let hash = key;
-
-    let bucket = &mut hashtable[hash as usize % hashtable.len()];
-
-    bucket.push_back(Fuck {
-        ptr: NonNull::new(inode).unwrap(),
-    });
 }
 
 #[repr(C)]
@@ -276,7 +180,7 @@ impl InodeInfo {
         inode_hashtable: &SpinLock<InodeHashTable>,
         dir: &DirEntry,
     ) -> Result<&'a mut Self> {
-        if let Some(inode) = get_inode(inode_hashtable, dir.cluster, dir.index) {
+        if let Some(inode) = inode_hashtable.lock().get(dir.cluster, dir.index) {
             return Ok(inode);
         }
 
@@ -289,7 +193,7 @@ impl InodeInfo {
         let inode = inode.to_info_mut();
         inode.fill(sb_info, sb_state, dir);
 
-        insert_inode(inode_hashtable, inode);
+        inode_hashtable.lock().insert(inode);
         unsafe { __insert_inode_hash(&mut inode.vfs_inode, inode.unique_num()) };
 
         Ok(inode)
@@ -364,6 +268,12 @@ pub(crate) extern "C" fn alloc_inode(_sb: *mut SuperBlock) -> *mut Inode {
         unsafe { &mut (*ei.as_ptr()).vfs_inode }
     } else {
         null_mut()
+    }
+}
+pub(crate) extern "C" fn free_inode(inode: *mut Inode) {
+    kernel::pr_info!("free_inode called");
+    if let Some(inode) = NonNull::new(inode as *mut InodeInfo) {
+        unsafe { INODE_ALLOC_CACHE.free(inode) };
     }
 }
 
