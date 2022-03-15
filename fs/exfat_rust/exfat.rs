@@ -20,24 +20,25 @@ mod super_operations;
 mod superblock;
 mod upcase;
 
+use crate::allocation_bitmap::load_allocation_bitmap;
 use crate::inode::{InodeExt, INODE_ALLOC_CACHE};
+use crate::superblock::{ExfatMountOptions, SbInfo, SbState, SuperBlock, SuperBlockInfo};
+use core::mem::{size_of, transmute, MaybeUninit};
 use core::pin::Pin;
 use core::ptr::null_mut;
 use fs_parameter::{exfat_parse_param, EXFAT_PARAMETERS};
 use kernel::bindings::{
-    __insert_inode_hash, d_make_root, file_system_type as FileSystemType, fs_context,
+    __insert_inode_hash, d_make_root, file_system_type as FileSystemType, fs_context as FsContext,
     fs_context_operations as FsContextOps, fs_parameter_spec, get_tree_bdev,
     hlist_head as HlistHead, inode as Inode, inode_set_iversion, kill_block_super,
     lock_class_key as LockClassKey, new_inode, register_filesystem, request_queue as RequestQueue,
-    super_block, unregister_filesystem, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV, NSEC_PER_MSEC,
-    QUEUE_FLAG_DISCARD, SB_NODIRATIME,
+    unregister_filesystem, CONFIG_EXFAT_DEFAULT_IOCHARSET, EXFAT_SUPER_MAGIC, FS_REQUIRES_DEV,
+    NSEC_PER_MSEC, QUEUE_FLAG_DISCARD, SB_NODIRATIME,
 };
-use kernel::c_types;
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
 use kernel::sync::{Mutex, SpinLock};
 use kernel::{pr_warn, Error, Result, ThisModule};
-use superblock::{ExfatMountOptions, SbState, SuperBlock, SuperBlockInfo};
 
 struct ExFatRust;
 
@@ -55,37 +56,36 @@ static mut FS_TYPE: FileSystemType = FileSystemType {
     mount: None,
     next: null_mut(),
     fs_supers: empty_hlist(),
-    s_lock_key: LockClassKey {},
-    s_umount_key: LockClassKey {},
-    s_vfs_rename_key: LockClassKey {},
-    s_writers_key: [LockClassKey {}; 3],
-    i_lock_key: LockClassKey {},
-    i_mutex_key: LockClassKey {},
-    invalidate_lock_key: LockClassKey {},
-    i_mutex_dir_key: LockClassKey {},
+    s_lock_key: empty_lock_class_key(),
+    s_umount_key: empty_lock_class_key(),
+    s_vfs_rename_key: empty_lock_class_key(),
+    s_writers_key: [empty_lock_class_key(); 3],
+    i_lock_key: empty_lock_class_key(),
+    i_mutex_key: empty_lock_class_key(),
+    invalidate_lock_key: empty_lock_class_key(),
+    i_mutex_dir_key: empty_lock_class_key(),
 };
 
-pub(crate) extern "C" fn exfat_reconfigure(_fc: *mut fs_context) -> c_int {
+pub(crate) extern "C" fn exfat_reconfigure(_fc: *mut FsContext) -> c_int {
     todo!("exfat_reconfigure"); // TODO: implement me
 }
 
-pub(crate) extern "C" fn exfat_free(fc: *mut fs_context) {
+pub(crate) extern "C" fn exfat_free(fc: *mut FsContext) {
     // SAFETY: We expect FC to be there (TODO).
     let fc = unsafe { &mut *fc };
+    // TODO: unnecessary null check?
     if fc.s_fs_info.is_null() {
         return;
     }
 
-    // TODO: Finish later.
-    return;
-
-    // let sbi = get_exfat_sb_from_fc!(fc);
-    // sbi.info.options.free_iocharset();
-    // kfree(sbi);
-    // todo!("exfat_free");
-
-    // let sbi: &mut SuperBlockInfo<'_> = get_exfat_sb_from_fc!(fc);
+    unsafe {
+        // Drop the sbi
+        // SAFETY: SuperBlockInfo was allocated by a box
+        let sbi = fc.s_fs_info;
+        let _ = Box::from_raw(sbi);
+    }
 }
+
 static mut CONTEXT_OPS: FsContextOps = FsContextOps {
     free: Some(exfat_free),
     parse_param: Some(exfat_parse_param),
@@ -97,7 +97,7 @@ static mut CONTEXT_OPS: FsContextOps = FsContextOps {
     parse_monolithic: None,
 };
 
-extern "C" fn exfat_get_tree(fc: *mut fs_context) -> c_types::c_int {
+extern "C" fn exfat_get_tree(fc: *mut FsContext) -> c_int {
     // SAFETY: TODO
     return unsafe { get_tree_bdev(fc, Some(exfat_fill_super)) };
 }
@@ -109,138 +109,156 @@ const EXFAT_MAX_TIMESTAMP_SECS: i64 = 4354819199;
 const UTF8: &[u8] = b"utf8";
 const EXFAT_ROOT_INO: u64 = 1;
 
-extern "C" fn exfat_fill_super(sb: *mut super_block, _fc: *mut fs_context) -> c_types::c_int {
+extern "C" fn exfat_fill_super(sb: *mut SuperBlock, fc: *mut FsContext) -> c_int {
+    pr_info!("exfat_fill_super enter");
     from_kernel_result! {
         // SAFETY: TODO
         let sb = unsafe { &mut *sb };
-        fill_super(sb)?;
+        let fc = unsafe { &mut *fc };
+
+        pr_info!("fill_super enter");
+        let sbi = sb.s_fs_info as *mut MaybeUninit<SuperBlockInfo<'_>>;
+
+        // SAFETY: Value was allocated by a box and so is properly aligned
+        // sbi is MaybeUninit so the data is not assumed to be initialized.
+        let sbi = unsafe { &mut *sbi };
+
+        let mut options = read_mount_options(fc)?;
+
+        if options.allow_utime == u16::MAX {
+            options.allow_utime = !options.fs_dmask & 0022;
+        }
+
+        if options.discard {
+            let queue: &mut RequestQueue = bdev_get_queue!(&mut sb.s_bdev);
+
+            if (queue.queue_flags >> QUEUE_FLAG_DISCARD) & 1 == 0 {
+                // The DISCARD flag is not set for the device
+                pr_warn!("mounting with \"discard\" option, but the device does not support discard");
+                options.discard = false;
+            }
+        }
+
+        sb.s_flags |= SB_NODIRATIME as u64;
+        sb.s_magic = EXFAT_SUPER_MAGIC as u64;
+        sb.s_op = unsafe { &super_operations::EXFAT_SOPS as *const _ };
+
+        sb.s_time_gran = 10 * NSEC_PER_MSEC;
+        sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
+        sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
+
+        let mut sb_state = SbState { sb };
+        let boot_sector_info = boot_sector::read_boot_sector(&mut sb_state)?;
+        boot_sector::verify_boot_region(&mut sb_state)?;
+        let upcase_table = upcase::create_upcase_table(&boot_sector_info, &mut sb_state)?;
+
+        // Properly initialize sbi and write the struct to the previously allocated memory
+        let sbi = sbi.write(SuperBlockInfo {
+            allocation_bitmap: load_allocation_bitmap(&boot_sector_info, &mut sb_state)?,
+
+            info: SbInfo {
+                boot_sector_info,
+                options,
+                upcase_table,
+            },
+
+            // SAFETY: locks are initialized below
+            state: unsafe { Mutex::new(sb_state) },
+            inode_hashtable: unsafe { SpinLock::new(Default::default()) },
+        });
+
+        // Initialize locks
+        kernel::spinlock_init!(
+            unsafe { Pin::new_unchecked(&mut sbi.inode_hashtable) },
+            "ExFAT inode hashtable spinlock"
+        );
+        kernel::mutex_init!(
+            unsafe { Pin::new_unchecked(&mut sbi.state) },
+            "ExFAT superblock mutex"
+        );
+
+        let options: &mut ExfatMountOptions = &mut sbi.info.options;
+        if &*options.iocharset == UTF8 {
+            options.utf8 = true;
+        } else {
+            // TODO: charset stuff!??!?!
+        }
+
+        let sb = &mut sbi.state.get_mut().sb;
+
+        if options.utf8 {
+            // TODO
+            // sb->s_d_op = &exfat_utf8_dentry_ops;
+        } else {
+            // TODO
+            // sb->s_d_op = &exfat_dentry_ops;
+        }
+
+        let root_inode: &mut Inode = unsafe { new_inode(*sb).as_mut() }.ok_or_else(|| {
+            pr_err!("Failed to allocate root inode");
+            Error::ENOMEM
+        })?;
+
+        root_inode.i_ino = EXFAT_ROOT_INO;
+        // SAFETY: TODO
+        unsafe { inode_set_iversion(root_inode, 1) };
+        inode::read_root_inode(root_inode, sbi).map(|e| {
+            pr_err!("failed to initialize root inode");
+            e
+        })?;
+
+        inode::insert_inode(&sbi.inode_hashtable, root_inode.to_info_mut());
+        unsafe { __insert_inode_hash(root_inode, root_inode.to_info().unique_num()) };
+
+        let sb = &mut sbi.state.get_mut().sb;
+        // SAFETY: TODO: The kernel giveth, the kernel taketh away
+        sb.s_root = unsafe { d_make_root(root_inode) };
+        if sb.s_root.is_null() {
+            pr_err!("failed to get the root dentry");
+            return Err(Error::ENOMEM);
+        }
+
+        pr_info!("exfat_fill_super exit");
+
         Ok(())
     }
 }
 
-fn fill_super(sb: &mut SuperBlock) -> Result {
-    pr_info!("exfat_fill_super enter");
-    let exfat_sb_info = get_exfat_sb_from_sb!(sb);
-    //let exfat_sb_info = Pin::new(exfat_sb_info);
-    //let exfat_sb_info: &mut SuperBlockInfo = exfat_sb_info.get_mut();
-
-    let opts: &mut ExfatMountOptions = &mut exfat_sb_info.info.options;
-    if opts.allow_utime == u16::MAX {
-        opts.allow_utime = !opts.fs_dmask & 0022;
-    }
-
-    if opts.discard {
-        let queue: &mut RequestQueue = bdev_get_queue!(&mut sb.s_bdev);
-
-        if (queue.queue_flags >> QUEUE_FLAG_DISCARD) & 1 == 0 {
-            // The DISCARD flag is not set for the device
-            pr_warn!("mounting with \"discard\" option, but the device does not support discard");
-            opts.discard = false;
-        }
-    }
-
-    sb.s_flags |= SB_NODIRATIME as u64;
-    sb.s_magic = EXFAT_SUPER_MAGIC as u64;
-    sb.s_op = unsafe { &super_operations::EXFAT_SOPS as *const _ };
-
-    sb.s_time_gran = 10 * NSEC_PER_MSEC;
-    sb.s_time_min = EXFAT_MIN_TIMESTAMP_SECS;
-    sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
-
-    let sb_state = unsafe { Mutex::new(SbState { sb }) };
-    exfat_sb_info.state = Some(sb_state);
-    kernel::mutex_init!(
-        unsafe { Pin::new_unchecked(exfat_sb_info.state.as_mut().unwrap()) },
-        "ExFAT superblock mutex"
-    );
-
-    read_exfat_partition(exfat_sb_info)?;
-
-    exfat_hash_init(exfat_sb_info);
-
-    let opts: &mut ExfatMountOptions = &mut exfat_sb_info.info.options;
-    if opts.iocharset.as_bytes() != UTF8 {
-        opts.utf8 = true;
-    } else {
-        // TODO: charset stuff!??!?!
-    }
-
-    // TODO: Finished function
-    let sb = &mut exfat_sb_info.state.as_mut().unwrap().get_mut().sb;
-    let root_inode: &mut Inode = unsafe { new_inode(*sb).as_mut() }.ok_or_else(|| {
-        pr_err!("Failed to allocate root inode");
-        Error::ENOMEM
-    })?;
-    root_inode.i_ino = EXFAT_ROOT_INO;
-    // SAFETY: TODO
-    unsafe {
-        inode_set_iversion(root_inode, 1);
-    }
-    inode::read_root_inode(root_inode, exfat_sb_info)?;
-
-    inode::insert_inode(&exfat_sb_info.inode_hashtable, root_inode.to_info_mut());
-    unsafe { __insert_inode_hash(root_inode, root_inode.to_info().unique_num()) };
-
-    let sb = &mut exfat_sb_info.state.as_mut().unwrap().get_mut().sb;
-    // SAFETY: TODO: The kernel giveth, the kernel taketh away
-    sb.s_root = unsafe { d_make_root(root_inode) };
-
-    pr_info!("exfat_fill_super exit");
-
-    Ok(())
-}
-
-fn exfat_hash_init(sbi: &mut SuperBlockInfo<'_>) {
-    // SAFETY: TODO
-    kernel::spinlock_init!(
-        unsafe { Pin::new_unchecked(&mut sbi.inode_hashtable) },
-        "ExFAT inode hashtable spinlock"
-    );
-}
-
-fn read_exfat_partition(sbi: &mut SuperBlockInfo<'_>) -> Result {
-    // TODO: Add logging on returns
-
-    // 1. exfat_read_boot_sector
-    boot_sector::read_boot_sector(sbi)?;
-
-    // 2. exfat_verify_boot_region
-    boot_sector::verify_boot_region(sbi)?;
-
-    // 3. exfat_create_upcase_table
-    upcase::create_upcase_table(sbi)?;
-
-    // 4. exfat_load_bitmap
-    allocation_bitmap::load_allocation_bitmap(sbi)?;
-
-    Ok(())
+fn read_mount_options(_fc: &mut FsContext) -> Result<ExfatMountOptions> {
+    Ok(ExfatMountOptions {
+        fs_uid: Default::default(),   // TODO
+        fs_gid: Default::default(),   // TODO
+        fs_fmask: Default::default(), // TODO: current->fs->umask,
+        fs_dmask: Default::default(), // TODO: current->fs->umask,
+        allow_utime: u16::MAX,        // TODO
+        iocharset: CONFIG_EXFAT_DEFAULT_IOCHARSET
+            .try_to_vec()?
+            .try_into_boxed_slice()?,
+        errors: superblock::ExfatErrorMode::RemountRo,
+        utf8: true,                      // TODO
+        discard: Default::default(),     // TODO
+        time_offset: Default::default(), // TODO
+    })
 }
 
 const BITS_PER_BYTE: usize = 8;
 
-/// Initialize ExFat SuperBlockInfo and pass it to fs_context
-pub extern "C" fn init_fs_context(fc: *mut fs_context) -> c_int {
+/// Allocate ExFat SuperBlockInfo and pass it to fc
+pub extern "C" fn init_fs_context(fc: *mut FsContext) -> c_int {
     from_kernel_result! {
         pr_info!("init_fs_context enter");
 
-        // TODO: properly initialize sb
-        // TODO: might overflow the stack
-        let sbi = Box::try_new(SuperBlockInfo {
-            info: Default::default(),
+        let fc = unsafe { &mut *fc };
 
-            allocation_bitmap: Default::default(),
-
-            state: None,
-            inode_hashtable: unsafe { SpinLock::new(Default::default()) },
-        })?;
+        // sbi is lazily initialized in fill_super
+        let sbi: Box<MaybeUninit<SuperBlockInfo<'_>>> = Box::try_new(MaybeUninit::zeroed())?;
+        let sbi = Box::into_raw(sbi);
 
         // SAFETY: TODO
-        let fc = unsafe { &mut *fc };
-        fc.s_fs_info = Box::into_raw(sbi) as *mut c_void;
+        fc.s_fs_info = sbi as *mut c_void;
 
         // SAFETY: TODO
         fc.ops = unsafe { &CONTEXT_OPS as *const _ };
-
 
         pr_info!("init_fs_context exit");
         Ok(())
@@ -249,6 +267,11 @@ pub extern "C" fn init_fs_context(fc: *mut fs_context) -> c_int {
 
 const fn empty_hlist() -> HlistHead {
     HlistHead { first: null_mut() }
+}
+
+const fn empty_lock_class_key() -> LockClassKey {
+    // SAFETY: type comes from C and can be safely zeroed
+    unsafe { transmute([0u8; size_of::<LockClassKey>()]) }
 }
 
 module! {

@@ -2,21 +2,22 @@ use crate::checksum::{calc_checksum_32, ChecksumType};
 use crate::directory::{ExFatDirEntryKind, ExFatDirEntryReader};
 use crate::external::BufferHead;
 use crate::heap::cluster_to_sector;
-use crate::superblock::{SbInfo, SbState, SuperBlockInfo};
+use crate::superblock::{BootSectorInfo, SbState};
 use kernel::bindings::sector_t;
 use kernel::prelude::*;
 use kernel::{pr_err, pr_info, Error, Result};
 
+pub(crate) type UpcaseTable = Box<[u16]>;
+
 //const NUM_UPCASE: usize = 2918;
 const UTBL_COUNT: usize = 0x10000;
 
-pub(crate) fn create_upcase_table(sbi: &mut SuperBlockInfo<'_>) -> Result {
+pub(crate) fn create_upcase_table(
+    boot: &BootSectorInfo,
+    sb_state: &mut SbState<'_>,
+) -> Result<UpcaseTable> {
     // TODO: scan the root directory set and read the allocation bitmap
-    let sb_info = &mut sbi.info;
-    let sb_state = sbi.state.as_mut().unwrap().get_mut();
-    let root_dir = sb_info.boot_sector_info.root_dir;
-
-    let upcase_entry = ExFatDirEntryReader::new(sb_info, sb_state, root_dir)?
+    let upcase_entry = ExFatDirEntryReader::new(boot, sb_state, boot.root_dir)?
         .find_map(|entry| match entry.map(|e| e.kind) {
             Err(e) => Some(Err(e)),
             Ok(ExFatDirEntryKind::UpCaseTable(entry)) => Some(Ok(entry)),
@@ -26,12 +27,11 @@ pub(crate) fn create_upcase_table(sbi: &mut SuperBlockInfo<'_>) -> Result {
 
     match upcase_entry {
         Some(table) => {
-            let sector = cluster_to_sector(sb_info, table.first_cluster.to_native());
+            let sector = cluster_to_sector(boot, table.first_cluster.to_native());
             let num_sectors =
                 ((table.data_length.to_native() - 1) >> sb_state.sb.s_blocksize_bits) + 1;
 
             match load_upcase_table(
-                sb_info,
                 sb_state,
                 sector,
                 num_sectors,
@@ -40,32 +40,27 @@ pub(crate) fn create_upcase_table(sbi: &mut SuperBlockInfo<'_>) -> Result {
                 e @ Err(Error::EIO) => return e,
                 Err(err) => {
                     pr_info!("Failed to load upcase table, err: {:?}", err);
-                    load_default_upcase_table(sbi)?;
+                    load_default_upcase_table()
                 }
-                Ok(()) => {}
+                Ok(upcase_table) => Ok(upcase_table),
             }
         }
-        None => {
-            load_default_upcase_table(sbi)?;
-        }
+        None => load_default_upcase_table(),
     }
-
-    Ok(())
 }
 
-fn load_default_upcase_table(_sbi: &mut SuperBlockInfo<'_>) -> Result {
+fn load_default_upcase_table() -> Result<UpcaseTable> {
     // TODO:
-    todo!("Implement function");
+    todo!("Implement function")
 }
 
 #[allow(dead_code)] // TODO
 fn load_upcase_table(
-    sb_info: &mut SbInfo,
     sb_state: &mut SbState<'_>,
     mut sector: sector_t,
     mut num_sectors: u64,
     utbl_checksum: u32,
-) -> Result {
+) -> Result<UpcaseTable> {
     // TODO: we might want to rewrite this to use ClusterChain
     let sector_size = sb_state.sb.s_blocksize as usize;
 
@@ -127,8 +122,7 @@ fn load_upcase_table(
     }
 
     if unicode_index >= 0xffff && utbl_checksum == checksum as u32 {
-        sb_info.upcase_table = Some(upcase_table);
-        Ok(())
+        Ok(upcase_table)
     } else {
         pr_err!("Failed to load upcase table");
         Err(Error::EINVAL)

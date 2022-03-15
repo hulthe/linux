@@ -1,6 +1,6 @@
 use crate::directory::{ExFatDirEntryKind, ExFatDirEntryReader};
 use crate::heap::ClusterChain;
-use crate::superblock::SuperBlockInfo;
+use crate::superblock::{BootSectorInfo, SbState};
 use crate::BITS_PER_BYTE;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -14,16 +14,6 @@ pub(crate) struct AllocationBitmap {
 
     #[allow(dead_code)] // TODO
     cluster_count: u32,
-}
-
-impl Default for AllocationBitmap {
-    fn default() -> Self {
-        Self {
-            bitmap: Box::try_new([]).unwrap(), // Zero-sized types don't allocade
-            allocation_count: 0,
-            cluster_count: 0,
-        }
-    }
 }
 
 impl AllocationBitmap {
@@ -41,11 +31,11 @@ impl AllocationBitmap {
     }
 }
 
-pub(crate) fn load_allocation_bitmap(sbi: &mut SuperBlockInfo<'_>) -> Result {
-    let sb_state = &mut sbi.state.as_mut().unwrap().get_mut();
-    let root_dir = sbi.info.boot_sector_info.root_dir;
-
-    let bitmap_entry = ExFatDirEntryReader::new(&sbi.info, sb_state, root_dir)?
+pub(crate) fn load_allocation_bitmap(
+    boot: &BootSectorInfo,
+    sb_state: &mut SbState<'_>,
+) -> Result<AllocationBitmap> {
+    let bitmap_entry = ExFatDirEntryReader::new(boot, sb_state, boot.root_dir)?
         .find_map(|entry| match entry.map(|e| e.kind) {
             Err(e) => Some(Err(e)),
             Ok(ExFatDirEntryKind::AllocationBitmap(entry)) => Some(Ok(entry)),
@@ -59,8 +49,8 @@ pub(crate) fn load_allocation_bitmap(sbi: &mut SuperBlockInfo<'_>) -> Result {
         return Err(Error::EINVAL);
     }
 
-    sbi.info.map_clu = bitmap_entry.first_cluster.to_native();
-    let cluster_count = sbi.info.boot_sector_info.cluster_count();
+    let cluster = bitmap_entry.first_cluster.to_native();
+    let cluster_count = boot.cluster_count();
     let size = bitmap_entry.data_length.to_native();
     let required_size = ((cluster_count - 1) as u64 / BITS_PER_BYTE as u64) + 1;
 
@@ -85,7 +75,7 @@ pub(crate) fn load_allocation_bitmap(sbi: &mut SuperBlockInfo<'_>) -> Result {
         bitmap.try_push(0)?;
     }
 
-    ClusterChain::new(&sbi.info, sb_state, sbi.info.map_clu)?.read_exact(&mut bitmap)?;
+    ClusterChain::new(boot, sb_state, cluster)?.read_exact(&mut bitmap)?;
 
     // make sure the trailing bits are 0
     let trailing_bits = required_size * BITS_PER_BYTE as u64 - cluster_count as u64;
@@ -101,7 +91,5 @@ pub(crate) fn load_allocation_bitmap(sbi: &mut SuperBlockInfo<'_>) -> Result {
     };
     bitmap.count_allocations();
 
-    sbi.allocation_bitmap = bitmap;
-
-    Ok(())
+    Ok(bitmap)
 }

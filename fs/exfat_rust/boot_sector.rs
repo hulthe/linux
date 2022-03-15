@@ -1,6 +1,6 @@
 use crate::checksum::{calc_checksum_32, ChecksumType};
 use crate::external::BufferHead;
-use crate::superblock::{BootSectorInfo, SuperBlockInfo};
+use crate::superblock::{BootSectorInfo, SbState};
 use core::mem::size_of;
 use kernel::bindings::sb_min_blocksize;
 use kernel::endian::{u16le, u32le, u64le};
@@ -55,9 +55,8 @@ pub(crate) struct BootRegion {
     boot_signature: u16le,
 }
 
-pub(crate) fn read_boot_sector(sbi: &mut SuperBlockInfo<'_>) -> Result<()> {
-    let sb_info = &mut sbi.info;
-    let sb = &mut sbi.state.as_mut().unwrap().get_mut().sb;
+pub(crate) fn read_boot_sector(sb_state: &mut SbState<'_>) -> Result<BootSectorInfo> {
+    let sb = &mut sb_state.sb;
 
     // SAFETY: We have a mutable reference to sb thus mutations of it made by the kernel is safe.
     unsafe { sb_min_blocksize(*sb, 512) };
@@ -170,12 +169,11 @@ pub(crate) fn read_boot_sector(sbi: &mut SuperBlockInfo<'_>) -> Result<()> {
     sb.s_maxbytes = ((boot_sector_info.num_clusters - EXFAT_RESERVED_CLUSTERS)
         << boot_sector_info.cluster_size_bits) as i64;
 
-    sb_info.boot_sector_info = boot_sector_info;
-    Ok(())
+    Ok(boot_sector_info)
 }
 
-pub(crate) fn verify_boot_region(sbi: &mut SuperBlockInfo<'_>) -> Result {
-    let sb = &mut sbi.state.as_mut().unwrap().get_mut().sb;
+pub(crate) fn verify_boot_region(sb_state: &mut SbState<'_>) -> Result {
+    let sb = &mut sb_state.sb;
     let mut checksum: u32 = 0;
 
     // Read boot sector sub-regions

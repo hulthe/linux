@@ -2,8 +2,9 @@ use crate::allocation_bitmap::AllocationBitmap;
 use crate::boot_sector::EXFAT_RESERVED_CLUSTERS;
 use crate::fat::ClusterIndex;
 use crate::inode::InodeHashTable;
+use crate::upcase::UpcaseTable;
 use kernel::bindings::{kgid_t, kuid_t, sector_t};
-use kernel::c_types;
+use kernel::c_types::{c_char, c_int, c_uint, c_ushort};
 use kernel::prelude::*;
 use kernel::sync::{Mutex, SpinLock};
 
@@ -20,7 +21,7 @@ pub(crate) fn take_sb<'a>(sb: &'a *mut SuperBlock) -> &'a SuperBlockInfo<'a> {
 pub(crate) struct SuperBlockInfo<'a> {
     pub(crate) info: SbInfo,
 
-    pub(crate) state: Option<Mutex<SbState<'a>>>,
+    pub(crate) state: Mutex<SbState<'a>>,
 
     //struct buffer_head *boot_bh,
     /// allocation bitmap
@@ -33,17 +34,13 @@ pub(crate) struct SuperBlockInfo<'a> {
     //struct rcu_head rcu,
 }
 
-#[derive(Default)]
 pub(crate) struct SbInfo {
     pub(crate) boot_sector_info: BootSectorInfo,
-
-    /// allocation bitmap start cluster
-    pub(crate) map_clu: u32,
 
     pub(crate) options: ExfatMountOptions,
 
     /// UpCase table
-    pub(crate) upcase_table: Option<Box<[u16]>>,
+    pub(crate) upcase_table: UpcaseTable,
     // /// Charset used for input and display
     //struct nls_table *nls_io,
     //struct ratelimit_state ratelimit,
@@ -79,7 +76,6 @@ impl SbInfo {
 }
 
 #[allow(dead_code)] // TODO
-#[derive(Default)]
 pub(crate) struct BootSectorInfo {
     /// num of sectors in volume
     pub(crate) num_sectors: u64,
@@ -128,7 +124,7 @@ pub(crate) enum ExfatErrorMode {
 }
 
 impl ExfatErrorMode {
-    pub(crate) fn from_c_int(val: c_types::c_uint) -> Result<Self> {
+    pub(crate) fn from_c_int(val: c_uint) -> Result<Self> {
         Ok(match val {
             0 => Self::Continue,
             1 => Self::Panic,
@@ -137,7 +133,7 @@ impl ExfatErrorMode {
         })
     }
 
-    pub(crate) const fn get_name(self) -> *const c_types::c_char {
+    pub(crate) const fn get_name(self) -> *const c_char {
         match self {
             ExfatErrorMode::Continue => b"continue\0".as_ptr() as *const i8,
             ExfatErrorMode::Panic => b"panic\0".as_ptr() as *const i8,
@@ -156,43 +152,13 @@ impl Default for ExfatErrorMode {
 pub(crate) struct ExfatMountOptions {
     pub(crate) fs_uid: kuid_t,
     pub(crate) fs_gid: kgid_t,
-    pub(crate) fs_fmask: c_types::c_ushort,
-    pub(crate) fs_dmask: c_types::c_ushort,
+    pub(crate) fs_fmask: c_ushort,
+    pub(crate) fs_dmask: c_ushort,
     /* Permission for setting the [am]time*/
-    pub(crate) allow_utime: c_types::c_ushort,
-    pub(crate) iocharset: Box<CStr>,
+    pub(crate) allow_utime: c_ushort,
+    pub(crate) iocharset: Box<[u8]>,
     pub(crate) errors: ExfatErrorMode,
     pub(crate) utf8: bool,
     pub(crate) discard: bool,
-    pub(crate) time_offset: c_types::c_int,
-}
-
-impl Default for ExfatMountOptions {
-    fn default() -> Self {
-        Self {
-            fs_uid: Default::default(),
-            fs_gid: Default::default(),
-            fs_fmask: Default::default(),
-            fs_dmask: Default::default(),
-            allow_utime: Default::default(),
-            // SAFETY: TODO: Look.... We tried and we failed. This should probably be a COW instead.
-            iocharset: unsafe {
-                Box::from_raw(CStr::from_bytes_with_nul_unchecked(&[]) as *const _ as *mut _)
-            },
-            errors: Default::default(),
-            utf8: Default::default(),
-            discard: Default::default(),
-            time_offset: Default::default(),
-        }
-    }
-}
-
-// TODO: figure out how to deal with this.
-// const EXFAT_DEFAULT_IOCHARSET: &[u8] = #[cfg(CONFIG_EXFAT_DEFAULT_IOCHARSET)];
-
-impl ExfatMountOptions {
-    #[allow(dead_code)]
-    pub(crate) fn free_iocharset(&mut self) {
-        todo!("Free iocharset");
-    }
+    pub(crate) time_offset: c_int,
 }

@@ -6,9 +6,8 @@ use core::cmp::min;
 use kernel::bindings::{
     address_space, address_space_operations as AddressSpaceOperations, buffer_delay,
     buffer_head as BufferHead, clear_buffer_delay, dentry, file, iattr,
-    inode_operations as InodeOperations, iov_iter, kiocb, kstat, list_head, loff_t, map_bh,
-    mpage_readahead, page, path, readahead_control, sector_t, u32_, user_namespace,
-    writeback_control,
+    inode_operations as InodeOperations, iov_iter, kiocb, kstat, loff_t, map_bh, mpage_readahead,
+    page, path, readahead_control, sector_t, u32_, user_namespace, writeback_control,
 };
 use kernel::c_types::{c_int, c_uint, c_void};
 use kernel::{pr_info, Error, Result};
@@ -175,7 +174,7 @@ fn get_block(
         unimplemented!("get_block(create=true)")
     }
 
-    let mut sb_state = sbi.state.as_ref().unwrap().lock();
+    let mut sb_state = sbi.state.lock();
     let sb = &mut *sb_state.sb;
     let sb_info = &sbi.info;
 

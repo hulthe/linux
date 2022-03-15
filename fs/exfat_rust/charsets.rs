@@ -89,7 +89,7 @@ impl UTF16String {
                 _lossy |= NlsNameMode::Lossy as u32;
             }
 
-            uppercase_name[i] = to_upper(sb_info, char16)?.into();
+            uppercase_name[i] = to_upper(sb_info, char16).into();
         }
 
         // Append NULL terminator
@@ -107,15 +107,10 @@ impl UTF16String {
 }
 
 // TODO: Move somewhere else, anywhere but here
-fn to_upper(sb_info: &SbInfo, char16: u16) -> Result<u16> {
-    if let Some(upcase_table) = &sb_info.upcase_table {
-        let val = upcase_table[char16 as usize];
-        if val != 0 {
-            return Ok(val);
-        }
-        return Ok(char16);
-    } else {
-        // TODO: Figure out what error would be appropriate here.
-        Err(Error::EINVAL)
+fn to_upper(sb_info: &SbInfo, char16: u16) -> u16 {
+    let val = sb_info.upcase_table[char16 as usize];
+    if val != 0 {
+        return val;
     }
+    return char16;
 }
