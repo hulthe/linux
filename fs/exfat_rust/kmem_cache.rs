@@ -97,11 +97,16 @@ impl<T: PtrInit> KMemCache<T> {
         NonNull::new(ptr).ok_or(Error::ENOMEM)
     }
 
-    pub(crate) fn free(&self, object: NonNull<T>) {
+    /// SAFETY: `object` must have been previously allocated by a call to `alloc`.
+    /// After the call to free, the pointer must not be used again.
+    pub(crate) unsafe fn free(&self, object: NonNull<T>) {
         let cache = match self.get_cache() {
             Ok(cache) => cache,
             Err(_) => return,
         };
+
+        // SAFETY: Caller guarantees that the object was created by this cache.
+        unsafe { object.as_ptr().drop_in_place() };
 
         // SAFETY: self.cache was Some, therefore the cache was
         // properly initialized by a call to self.crate()

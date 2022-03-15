@@ -16,7 +16,6 @@ pub(crate) fn create_upcase_table(
     boot: &BootSectorInfo,
     sb_state: &mut SbState<'_>,
 ) -> Result<UpcaseTable> {
-    // TODO: scan the root directory set and read the allocation bitmap
     let upcase_entry = ExFatDirEntryReader::new(boot, sb_state, boot.root_dir)?
         .find_map(|entry| match entry.map(|e| e.kind) {
             Err(e) => Some(Err(e)),
@@ -51,7 +50,7 @@ pub(crate) fn create_upcase_table(
 
 fn load_default_upcase_table() -> Result<UpcaseTable> {
     // TODO:
-    todo!("Implement function")
+    todo!("load default upcase table")
 }
 
 #[allow(dead_code)] // TODO

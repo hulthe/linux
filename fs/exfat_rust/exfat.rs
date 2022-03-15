@@ -195,7 +195,7 @@ extern "C" fn exfat_fill_super(sb: *mut SuperBlock, fc: *mut FsContext) -> c_int
             e
         })?;
 
-        inode::insert_inode(&sbi.inode_hashtable, root_inode.to_info_mut());
+        sbi.inode_hashtable.lock().insert(root_inode.to_info_mut());
         unsafe { __insert_inode_hash(root_inode, root_inode.to_info().unique_num()) };
 
         let sb = &mut sbi.state.get_mut().sb;
