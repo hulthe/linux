@@ -100,7 +100,7 @@ fn lookup<'a>(
     dentry: &mut DEntry,
     path_name: &CStr,
 ) -> Result<Option<&'static mut DEntry>> {
-    let mut sb_state = sbi.state.as_ref().unwrap().lock();
+    let mut sb_state = sbi.state.lock();
     let sb_info = &sbi.info;
 
     let path_name = path_name.to_str()?.try_to_owned()?;

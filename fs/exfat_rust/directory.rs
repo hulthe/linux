@@ -16,7 +16,7 @@ use volume_label::VolumeLabel;
 
 use crate::fat::ClusterIndex;
 use crate::heap::ClusterChain;
-use crate::superblock::{SbInfo, SbState};
+use crate::superblock::{BootSectorInfo, SbInfo, SbState};
 use alloc::string::String;
 use core::iter::FusedIterator;
 use core::ops::Range;
@@ -90,12 +90,12 @@ pub(crate) struct ExFatDirEntryReader<'a> {
 
 impl<'a> ExFatDirEntryReader<'a> {
     pub(crate) fn new(
-        sb_info: &'a SbInfo,
+        boot: &'a BootSectorInfo,
         sb_state: &'a SbState<'a>,
         index: ClusterIndex,
     ) -> Result<Self> {
         Ok(Self {
-            chain: ClusterChain::new(sb_info, sb_state, index)?,
+            chain: ClusterChain::new(boot, sb_state, index)?,
             fused: false,
             index: 0,
         })
@@ -189,7 +189,7 @@ impl<'a> DirEntryReader<'a> {
     ) -> Result<Self> {
         Ok(Self {
             sb_info,
-            entries: ExFatDirEntryReader::new(sb_info, sb_state, index)?,
+            entries: ExFatDirEntryReader::new(&sb_info.boot_sector_info, sb_state, index)?,
         })
     }
 }

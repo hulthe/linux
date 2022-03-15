@@ -374,7 +374,7 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
     let inode = &mut info.vfs_inode;
 
     let sb_info = &sbi.info;
-    let sb_state = sbi.state.as_mut().unwrap().get_mut();
+    let sb_state = sbi.state.get_mut();
     let sb = &mut sb_state.sb;
 
     let root_dir = sb_info.boot_sector_info.root_dir;
@@ -395,7 +395,7 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
         i_size_write(inode, clusters_size);
     }
 
-    let dir_reader = ExFatDirEntryReader::new(sb_info, sb_state, root_dir)?;
+    let dir_reader = ExFatDirEntryReader::new(&sb_info.boot_sector_info, sb_state, root_dir)?;
     let num_subdirs = dir_reader
         .filter_map(|dir_entry| match dir_entry.map(|e| e.kind) {
             Err(e) => Some(Err(e)),

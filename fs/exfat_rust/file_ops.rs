@@ -80,7 +80,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
 
         let sbi = take_sb(&inode.vfs_inode.i_sb);
         let sb_info = &sbi.info;
-        let sb_lock = sbi.state.as_ref().unwrap();
+        let sb_lock = &sbi.state;
         let sb_state = sb_lock.lock();
 
         if unsafe { !dir_emit_dots(file, context) } {
