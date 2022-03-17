@@ -54,7 +54,7 @@ impl<'a> ClusterChain<'a> {
             sector_cursor: 0,
             cluster_sector: 0,
             current_cluster: index,
-            fat_reader: FatChainReader::new(sb_state.sb, index),
+            fat_reader: FatChainReader::new(boot, sb_state.sb, index),
             boot,
             sb: sb_state.sb,
         };

@@ -7,8 +7,7 @@ use kernel::bindings::{
     address_space, address_space_operations as AddressSpaceOperations, buffer_delay,
     buffer_head as BufferHead, clear_buffer_delay, dentry, file, iattr,
     inode_operations as InodeOperations, iov_iter, kiocb, kstat, loff_t, map_bh, mpage_readahead,
-    mpage_readpage, page, path, readahead_control, sector_t, u32_, user_namespace,
-    writeback_control,
+    mpage_readpage, page, path, readahead_control, sector_t, user_namespace, writeback_control,
 };
 use kernel::c_types::{c_int, c_uint, c_void};
 use kernel::{pr_info, Error, Result};
@@ -172,8 +171,6 @@ fn get_block(
     bh_result: &mut BufferHead,
     create: bool,
 ) -> Result {
-    pr_info!("get_block called");
-    pr_info!("---");
     if create {
         unimplemented!("get_block(create=true)")
     }
@@ -196,9 +193,7 @@ fn get_block(
     // TODO: tmp code
     let cluster_offset = (iblock >> sb_info.boot_sector_info.sect_per_clus_bits) as u32;
 
-    pr_info!("get_block, iblock={iblock}, cluster_offset={cluster_offset}");
-    pr_info!("---");
-    let cluster = FatChainReader::new(sb, inode.data_cluster)
+    let cluster = FatChainReader::new(&sb_info.boot_sector_info, sb, inode.data_cluster)
         .skip(cluster_offset as usize)
         .next()
         .unwrap_or(Err(Error::EIO))?;
