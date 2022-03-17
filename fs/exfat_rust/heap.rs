@@ -6,29 +6,35 @@ use core::cmp::min;
 use kernel::{pr_err, Error, Result};
 
 pub(crate) struct ClusterChain<'a> {
-    /// The cluster index for the start of the chain
-    start_cluster: ClusterIndex,
-
-    state: Option<ClusterChainState<'a>>,
-}
-
-struct ClusterChainState<'a> {
     boot: &'a BootSectorInfo,
     sb: &'a SuperBlock,
 
+    /// The cluster index for the start of the chain
+    start_cluster: ClusterIndex,
+
     fat_reader: FatChainReader<'a>,
 
-    /// The current cluster index in the chain
-    current_cluster: ClusterIndex,
+    /// The current cluster
+    cluster: Option<Cluster>,
+}
+
+struct Cluster {
+    /// The index of the cluster
+    index: ClusterIndex,
+
+    /// The current relative sector within the cluster
+    sector_index: u64,
 
     /// The current sector
-    sector: BufferHead,
+    sector: Option<Sector>,
+}
 
-    /// The current byte within the current sector, from 0
-    sector_cursor: usize,
+struct Sector {
+    /// The sector data
+    data: BufferHead,
 
-    /// The current sector within the current cluster, from 0
-    cluster_sector: u64,
+    /// The current byte within the sector, start at 0
+    byte_cursor: usize,
 }
 
 pub(crate) fn cluster_to_sector(boot: &BootSectorInfo, cluster: ClusterIndex) -> u64 {
@@ -48,24 +54,12 @@ impl<'a> ClusterChain<'a> {
             return Err(Error::EINVAL);
         }
 
-        let mut fat_reader = FatChainReader::new(boot, sb_state.sb, index);
-
-        let start_sector = cluster_to_sector(boot, index);
-        let state = ClusterChainState {
-            sector: BufferHead::block_read(sb_state.sb, start_sector).ok_or(Error::EIO)?,
-            sector_cursor: 0,
-            cluster_sector: 0,
-            current_cluster: fat_reader
-                .next()
-                .expect("first FatChainReader::next will never fail")?,
-            fat_reader,
-            boot,
-            sb: sb_state.sb,
-        };
-
         Ok(ClusterChain {
             start_cluster: index,
-            state: Some(state),
+            fat_reader: FatChainReader::new(boot, sb_state.sb, index),
+            cluster: None,
+            boot,
+            sb: sb_state.sb,
         })
     }
 
@@ -90,48 +84,52 @@ impl<'a> ClusterChain<'a> {
     ///
     /// Returns the number of bytes read, or `0` if everything has been read.
     pub(crate) fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let state = match self.state.as_mut() {
-            Some(s) => s,
-            None => return Ok(0),
+        // get the current cluster
+        let mut cluster = match self.cluster.take() {
+            Some(cluster) => cluster,
+            None => match self.fat_reader.next() {
+                Some(Ok(next_cluster)) => Cluster {
+                    index: next_cluster,
+                    sector_index: 0,
+                    sector: None,
+                },
+                Some(Err(e)) => return Err(e),
+                None => return Ok(0), // EOF
+            },
         };
 
-        let load_sector = |state: &ClusterChainState<'a>| {
-            let sector =
-                cluster_to_sector(state.boot, state.current_cluster) + state.cluster_sector;
-            BufferHead::block_read(state.sb, sector).ok_or(Error::ENOMEM)
-        };
+        // get the current sector
+        let mut sector = match cluster.sector.take() {
+            Some(sector) => sector,
+            None => {
+                let sector = cluster_to_sector(self.boot, cluster.index) + cluster.sector_index;
 
-        let bytes = &state.sector.bytes()[state.sector_cursor..];
-        let write_len = min(buf.len(), bytes.len());
-
-        buf[..write_len].copy_from_slice(&bytes[..write_len]);
-        state.sector_cursor += write_len;
-
-        if state.sector_cursor as u64 == state.sb.s_blocksize {
-            // finished reading sector
-
-            state.sector_cursor = 0;
-            state.cluster_sector += 1;
-
-            if state.cluster_sector == state.boot.sect_per_clus as u64 {
-                // finished reading cluster
-                state.cluster_sector = 0;
-                match state.fat_reader.next() {
-                    Some(Ok(next_cluster)) => {
-                        state.current_cluster = next_cluster;
-                        state.sector = load_sector(&state)?;
-                    }
-                    Some(Err(e)) => {
-                        self.state = None;
-                        return Err(e);
-                    }
-                    None => {
-                        self.state = None;
-                    }
+                Sector {
+                    data: BufferHead::block_read(self.sb, sector).ok_or(Error::ENOMEM)?,
+                    byte_cursor: 0,
                 }
-            } else {
-                // next sector in cluster
-                state.sector = load_sector(&state)?;
+            }
+        };
+
+        // copy bytes
+        let bytes = &sector.data.bytes()[sector.byte_cursor..];
+        let write_len = min(buf.len(), bytes.len());
+        buf[..write_len].copy_from_slice(&bytes[..write_len]);
+        sector.byte_cursor += write_len;
+
+        // check if we've not yet read the entire sector
+        if (sector.byte_cursor as u64) < self.sb.s_blocksize {
+            // ff so, keep reading the sector next time
+            cluster.sector = Some(sector);
+            self.cluster = Some(cluster);
+        } else {
+            // else move to the next sector in the cluster
+            cluster.sector_index += 1;
+
+            // check if we've not yet read all sectors in the cluster
+            if cluster.sector_index < self.boot.sect_per_clus as u64 {
+                // if so, we keep reading the same cluster next time
+                self.cluster = Some(cluster);
             }
         }
 
