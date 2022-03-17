@@ -10,7 +10,7 @@ use kernel::bindings::{
     mpage_readpage, page, path, readahead_control, sector_t, user_namespace, writeback_control,
 };
 use kernel::c_types::{c_int, c_uint, c_void};
-use kernel::{pr_info, Error, Result};
+use kernel::{Error, Result};
 
 pub(crate) static FILE_INODE_OPERATIONS: InodeOperations = InodeOperations {
     getattr: None, // Doesn't appear like we need this, implement if necessary
@@ -113,8 +113,6 @@ extern "C" fn exfat_set_page_dirty(_page: *mut page) -> c_int {
 
 extern "C" fn exfat_readahead(rac: *mut readahead_control) {
     // SAFETY: TODO
-    pr_info!("readahead called");
-    pr_info!("---");
     unsafe { mpage_readahead(rac, Some(exfat_get_block)) };
 }
 

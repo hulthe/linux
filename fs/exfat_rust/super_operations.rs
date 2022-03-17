@@ -9,7 +9,6 @@ use kernel::bindings::{
     writeback_control as WritebackControl,
 };
 use kernel::c_types::{c_int, c_uint};
-use kernel::pr_info;
 
 pub(crate) static mut EXFAT_SOPS: SuperOperations = SuperOperations {
     alloc_inode: Some(alloc_inode),
@@ -30,8 +29,6 @@ extern "C" fn exfat_write_inode(_arg1: *mut Inode, _wbc: *mut WritebackControl) 
 }
 
 extern "C" fn exfat_evict_inode(inode: *mut Inode) {
-    pr_info!("exfat_evict_inode called");
-
     let inode = unsafe { &mut *inode }.to_info_mut();
     let sb = inode.vfs_inode.i_sb;
     let sbi = take_sb(&sb);

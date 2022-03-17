@@ -226,7 +226,7 @@ impl Iterator for DirEntryReader<'_> {
                 return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
             }
             Some(Ok(v)) => {
-                pr_err!("Unknown entry: {:?}", v);
+                pr_err!("Error, expected StreamExtension, found entry: {:?}", v);
                 return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
             }
         };
@@ -257,7 +257,7 @@ impl Iterator for DirEntryReader<'_> {
                     return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
                 }
                 Some(Ok(v)) => {
-                    pr_err!("Unknown entry: {:?}", v);
+                    pr_err!("Error, expected FileName, found entry: {:?}", v);
                     return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
                 }
             };

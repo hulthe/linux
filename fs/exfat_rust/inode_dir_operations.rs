@@ -110,47 +110,6 @@ fn lookup<'a>(
     let inode = InodeInfo::build(&mut sb_state, sb_info, &sbi.inode_hashtable, &dir_entry)?;
     // TODO: call exfat_d_version_set if inode failed with ENOENT
 
-    pr_info!("dir_inode i_ino: {:?}", dir_inode.vfs_inode.i_ino);
-    pr_info!("dir_inode data_cluster: {:?}", dir_inode.data_cluster);
-    pr_info!("dir_inode dir_cluster: {:?}", dir_inode.dir_cluster);
-    pr_info!("looked up {}", dir_entry.name);
-    pr_info!("dir_entry data_cluster {}", dir_entry.data_cluster);
-    pr_info!("inode data_cluster {}", inode.data_cluster);
-    pr_info!("inode dir_cluster {}", inode.dir_cluster);
-
-    //pr_info!("dir i_mode: {:?}", dir_inode.vfs_inode.i_mode);
-    //pr_info!("dir i_opflags: {:?}", dir_inode.vfs_inode.i_opflags);
-    //pr_info!("dir i_flags: {:?}", dir_inode.vfs_inode.i_flags);
-    //pr_info!("dir i_acl: {:?}", dir_inode.vfs_inode.i_acl);
-    //pr_info!("dir i_default_acl: {:?}", dir_inode.vfs_inode.i_default_acl);
-    //pr_info!("dir i_op: {:?}", dir_inode.vfs_inode.i_op);
-    //pr_info!("dir i_sb: {:?}", dir_inode.vfs_inode.i_sb);
-    //pr_info!("dir i_mapping: {:?}", dir_inode.vfs_inode.i_mapping);
-    //pr_info!("dir i_security: {:?}", dir_inode.vfs_inode.i_security);
-    //pr_info!("dir i_rdev: {:?}", dir_inode.vfs_inode.i_rdev);
-    //pr_info!("dir i_size: {:?}", dir_inode.vfs_inode.i_size);
-    //pr_info!("dir i_bytes: {:?}", dir_inode.vfs_inode.i_bytes);
-    //pr_info!("dir i_blkbits: {:?}", dir_inode.vfs_inode.i_blkbits);
-    //pr_info!("dir i_write_hint: {:?}", dir_inode.vfs_inode.i_write_hint);
-    //pr_info!("dir i_blocks: {:?}", dir_inode.vfs_inode.i_blocks);
-    //pr_info!("dir i_state: {:?}", dir_inode.vfs_inode.i_state);
-    //pr_info!("dir dirtied_when: {:?}", dir_inode.vfs_inode.dirtied_when);
-    //pr_info!(
-    //    "dir dirtied_time_when: {:?}",
-    //    dir_inode.vfs_inode.dirtied_time_when
-    //);
-    //pr_info!("dir i_flctx: {:?}", dir_inode.vfs_inode.i_flctx);
-    //pr_info!("dir i_generation: {:?}", dir_inode.vfs_inode.i_generation);
-    //pr_info!(
-    //    "dir i_fsnotify_mask: {:?}",
-    //    dir_inode.vfs_inode.i_fsnotify_mask
-    //);
-    //pr_info!(
-    //    "dir i_fsnotify_marks: {:?}",
-    //    dir_inode.vfs_inode.i_fsnotify_marks
-    //);
-    //pr_info!("dir i_private: {:?}", dir_inode.vfs_inode.i_private);
-
     let alias = unsafe { d_find_alias(&mut inode.vfs_inode) };
     if let Some(alias) = unsafe { alias.as_mut() } {
         // Checking "alias->d_parent == dentry->d_parent" to make sure

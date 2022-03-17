@@ -10,7 +10,6 @@ use kernel::bindings::{
     iunique, loff_t, sync_blockdev, DT_DIR, DT_REG,
 };
 use kernel::c_types::c_int;
-use kernel::pr_info;
 
 pub(crate) static mut DIR_OPERATIONS: FileOperations = FileOperations {
     llseek: Some(generic_file_llseek),
@@ -25,7 +24,6 @@ pub(crate) static mut DIR_OPERATIONS: FileOperations = FileOperations {
 };
 
 extern "C" fn file_fsync(file: *mut File, start: loff_t, end: loff_t, datasync: c_int) -> c_int {
-    pr_info!("file_fsync called");
     let inode = unsafe { (*(*file).f_mapping).host };
 
     let err = unsafe { __generic_file_fsync(file, start, end, datasync) };
@@ -43,7 +41,6 @@ extern "C" fn file_fsync(file: *mut File, start: loff_t, end: loff_t, datasync: 
 }
 
 extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int {
-    pr_info!("exfat_iterate called");
     from_kernel_result! {
         const ITER_POS_FILLED_DOTS: u64 = 2;
 
@@ -63,7 +60,6 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
         }
 
 
-        pr_info!("exfat_iterate cluster {}", inode.data_cluster);
         let mut sb_lock_guard = Some(sb_state);
         loop {
             let mut sb_state = sb_lock_guard
@@ -72,7 +68,6 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
 
             let entry_index = context.pos as u64 - ITER_POS_FILLED_DOTS;
             context.pos += 1;
-            pr_info!("exfat_iterate next entry {entry_index}");
 
             let reader = DirEntryReader::new(sb_info, &sb_state, inode.data_cluster)?;
             let mut reader = reader.skip(entry_index as usize);
