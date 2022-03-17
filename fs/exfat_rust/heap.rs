@@ -48,13 +48,17 @@ impl<'a> ClusterChain<'a> {
             return Err(Error::EINVAL);
         }
 
+        let mut fat_reader = FatChainReader::new(boot, sb_state.sb, index);
+
         let start_sector = cluster_to_sector(boot, index);
         let state = ClusterChainState {
             sector: BufferHead::block_read(sb_state.sb, start_sector).ok_or(Error::EIO)?,
             sector_cursor: 0,
             cluster_sector: 0,
-            current_cluster: index,
-            fat_reader: FatChainReader::new(boot, sb_state.sb, index),
+            current_cluster: fat_reader
+                .next()
+                .expect("first FatChainReader::next will never fail")?,
+            fat_reader,
             boot,
             sb: sb_state.sb,
         };

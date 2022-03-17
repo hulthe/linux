@@ -267,8 +267,6 @@ impl InodeExt for Inode {
 const EXFAT_MIN_SUBDIR: u32 = 2;
 
 pub(crate) extern "C" fn alloc_inode(_sb: *mut SuperBlock) -> *mut Inode {
-    kernel::pr_info!("alloc_inode called");
-
     // bindgen is confused by these constants. // TODO move them
     const __GFP_RECLAIM: u32 = ___GFP_DIRECT_RECLAIM | ___GFP_KSWAPD_RECLAIM;
     const GFP_NOFS: u32 = __GFP_RECLAIM | ___GFP_IO;
@@ -281,7 +279,6 @@ pub(crate) extern "C" fn alloc_inode(_sb: *mut SuperBlock) -> *mut Inode {
     }
 }
 pub(crate) extern "C" fn free_inode(inode: *mut Inode) {
-    kernel::pr_info!("free_inode called");
     if let Some(inode) = NonNull::new(inode as *mut InodeInfo) {
         unsafe { INODE_ALLOC_CACHE.free(inode) };
     }

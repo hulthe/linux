@@ -1,7 +1,7 @@
 use crate::external::BufferHead;
 use crate::superblock::{BootSectorInfo, SuperBlock};
 use core::mem::size_of;
-use kernel::{pr_err, pr_info, Error, Result};
+use kernel::{pr_err, Error, Result};
 
 pub(crate) type ClusterIndex = u32;
 
@@ -41,8 +41,6 @@ impl Iterator for FatChainReader<'_> {
         let bytes = &block.bytes()[byte_offset..][..entry_size];
 
         let next = ClusterIndex::from_le_bytes(bytes.try_into().unwrap());
-
-        pr_info!("fatchain index={}, start_sector={}, entry_size={}, sector_size={}, sector={}, byte_offset={}, next={:?}", index, self.boot.fat1_start_sector, entry_size, sector_size, sector, byte_offset, next);
 
         match next {
             FAT_ENTRY_FREE => self.next = Some(index + 1),
