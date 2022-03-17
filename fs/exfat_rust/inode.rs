@@ -23,7 +23,7 @@ use kernel::bindings::{
 };
 use kernel::linked_list::Links;
 use kernel::sync::SpinLock;
-use kernel::{Error, Result};
+use kernel::{static_assert, Error, Result};
 
 pub(crate) type Inode = kernel::bindings::inode;
 
@@ -35,13 +35,14 @@ pub(crate) fn inode_unique_num(cluster: u32, entry: u32) -> u64 {
     (entry as u64) << u32::BITS | cluster as u64
 }
 
+static_assert!(align_of::<Inode>() == align_of::<InodeInfo>());
+
 #[repr(C)]
 pub(crate) struct InodeInfo {
-    // SAFETY: vfs_inode MUST BE at the top of this struct,
-    // otherwise hell will break lose and the angry angry
-    // memory gods will forever be your nemesis.
-    // DO NOT TOUCH!!!!!!!! (:cry:)!!!!!!!
+    // SAFETY: This field MUST BE at the top of this struct. That is because `*mut InodeInfo` is
+    // cast to `*mut Inode` when passed to the kernel, and vice versa.
     pub(crate) vfs_inode: Inode,
+
     // struct exfat_chain dir;
     /// The start of the cluster chain that contains the directory entry for this inode
     pub(crate) dir_cluster: u32,
@@ -55,9 +56,14 @@ pub(crate) struct InodeInfo {
     pub(crate) size_aligned: u64,
     pub(crate) size_ondisk: u64,
 
+    /// Used for tracking InodeInfo:s in the InodeHashTable
+    inode_cache_list: Links<Self>,
+    //
+    // TODO: fields from the C struct
     // unsigned int type;
     // unsigned short attr;
     // unsigned char flags;
+    //
     // /*
     //  * the copy of low 32bit of i_version to check
     //  * the validation of hint_stat.
@@ -66,14 +72,17 @@ pub(crate) struct InodeInfo {
     //
     // /* hint for cluster last accessed */
     // struct exfat_hint hint_bmap;
+    //
     // /* hint for entry index we try to lookup next time */
     // struct exfat_hint hint_stat;
+    //
     // /* hint for first empty entry */
     // struct exfat_hint_femp hint_femp;
     //
     // spinlock_t cache_lru_lock;
     // struct list_head cache_lru;
     // int nr_caches;
+    //
     // /* for avoiding the race between alloc and free */
     // unsigned int cache_valid_id;
     //
@@ -82,18 +91,21 @@ pub(crate) struct InodeInfo {
     //  * physically allocated size.
     //  */
     // loff_t i_size_ondisk;
+    //
     // /* block-aligned i_size (used in cont_write_begin) */
     // loff_t i_size_aligned;
+    //
     // /* on-disk position of directory entry or 0 */
     // loff_t i_pos;
+    //
     // /* hash by i_location */
     // struct hlist_node i_hash_fat;
+    //
     // /* protect bmap against truncate */
     // struct rw_semaphore truncate_lock;
-    // struct inode vfs_inode;
+    //
     // /* File creation time */
     // struct timespec64 i_crtime;
-    inode_cache_list: Links<Self>,
 }
 
 impl InodeInfo {
@@ -141,8 +153,8 @@ impl InodeInfo {
             // SAFETY: TODO
             self.vfs_inode.__bindgen_anon_3.i_fop = unsafe { &FILE_OPERATIONS as *const _ };
 
-            let i_mapping = unsafe { &mut *self.vfs_inode.i_mapping };
             // SAFETY: TODO
+            let i_mapping = unsafe { &mut *self.vfs_inode.i_mapping };
             i_mapping.a_ops = &ADDRESS_OPERATIONS as *const _;
             i_mapping.nrpages = 0;
         }
@@ -202,14 +214,10 @@ impl InodeInfo {
 
 impl PtrInit for InodeInfo {
     fn init_ptr(ptr: NonNull<Self>) {
-        assert_eq!(
-            align_of::<Inode>(),
-            align_of::<InodeInfo>(),
-            "cast Inode to InodeInfo"
-        );
-
         let kernel_inode_ptr: NonNull<Inode> = ptr.cast();
         unsafe { inode_init_once(kernel_inode_ptr.as_ptr()) };
+
+        // SAFETY: The pointer was just initialized
         let kernel_inode = unsafe { *kernel_inode_ptr.as_ptr() };
 
         let inode = InodeInfo {
@@ -260,9 +268,11 @@ const EXFAT_MIN_SUBDIR: u32 = 2;
 
 pub(crate) extern "C" fn alloc_inode(_sb: *mut SuperBlock) -> *mut Inode {
     kernel::pr_info!("alloc_inode called");
+
     // bindgen is confused by these constants. // TODO move them
     const __GFP_RECLAIM: u32 = ___GFP_DIRECT_RECLAIM | ___GFP_KSWAPD_RECLAIM;
     const GFP_NOFS: u32 = __GFP_RECLAIM | ___GFP_IO;
+
     if let Ok(ei) = INODE_ALLOC_CACHE.alloc(GFP_NOFS) {
         // TODO: initialize locks
         unsafe { &mut (*ei.as_ptr()).vfs_inode }
@@ -279,7 +289,6 @@ pub(crate) extern "C" fn free_inode(inode: *mut Inode) {
 
 // C name `exfat_read_root`
 pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -> Result {
-    // TODO: We probably want to use this for something :shrug:
     let info: &mut InodeInfo = inode.to_info_mut();
     let inode = &mut info.vfs_inode;
 
@@ -290,7 +299,7 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
     let root_dir = sb_info.boot_sector_info.root_dir;
     info.dir_cluster = 0; // TODO
     info.data_cluster = root_dir;
-    let chain_reader = FatChainReader::new(sb, root_dir);
+    let chain_reader = FatChainReader::new(&sb_info.boot_sector_info, sb, root_dir);
 
     fn count_oks<T>(bucket: Result<u32>, item: Result<T>) -> Result<u32> {
         let _ = item?;
@@ -301,9 +310,7 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
 
     let clusters_size = (num_clusters << sbi.info.boot_sector_info.cluster_size_bits) as i64;
     // SAFETY: TODO
-    unsafe {
-        i_size_write(inode, clusters_size);
-    }
+    unsafe { i_size_write(inode, clusters_size) };
 
     let dir_reader = ExFatDirEntryReader::new(&sb_info.boot_sector_info, sb_state, root_dir)?;
     let num_subdirs = dir_reader
@@ -315,17 +322,13 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
         .fold(Ok(0), count_oks)? as u32;
 
     // SAFETY: TODO
-    unsafe {
-        set_nlink(inode, num_subdirs + EXFAT_MIN_SUBDIR);
-    }
+    unsafe { set_nlink(inode, num_subdirs + EXFAT_MIN_SUBDIR) };
 
     inode.i_uid = sbi.info.options.fs_uid;
     inode.i_gid = sbi.info.options.fs_gid;
 
     // SAFETY: TODO
-    unsafe {
-        inode_inc_iversion(inode);
-    }
+    unsafe { inode_inc_iversion(inode) };
 
     inode.i_generation = 0;
     inode.i_mode = FileAttributes::from_u16(ROOT_FILE_ATTRIBUTE).to_unix(0o777, sb_info);
