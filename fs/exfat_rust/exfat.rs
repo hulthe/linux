@@ -190,8 +190,8 @@ extern "C" fn exfat_fill_super(sb: *mut SuperBlock, fc: *mut FsContext) -> c_int
         root_inode.i_ino = EXFAT_ROOT_INO;
         // SAFETY: TODO
         unsafe { inode_set_iversion(root_inode, 1) };
-        inode::read_root_inode(root_inode, sbi).map(|e| {
-            pr_err!("failed to initialize root inode");
+        inode::read_root_inode(root_inode, sbi).map_err(|e| {
+            pr_err!("failed to initialize root inode, err: {:?}", e);
             e
         })?;
 
