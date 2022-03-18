@@ -106,6 +106,17 @@ impl FusedIterator for ExFatDirEntryReader<'_> {}
 impl Iterator for ExFatDirEntryReader<'_> {
     type Item = Result<ExFatDirEntry>;
 
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        if n > 0 {
+            self.index += n as u32;
+            if let Err(e) = self.chain.skip(ENTRY_SIZE * n) {
+                self.fused = true;
+                return Some(Err(e));
+            }
+        }
+        self.next()
+    }
+
     fn next(&mut self) -> Option<Self::Item> {
         if self.fused {
             return None;
@@ -178,7 +189,7 @@ pub(crate) struct DirEntry {
 
 pub(crate) struct DirEntryReader<'a> {
     sb_info: &'a SbInfo,
-    entries: ExFatDirEntryReader<'a>,
+    pub(crate) entries: ExFatDirEntryReader<'a>,
 }
 
 impl<'a> DirEntryReader<'a> {

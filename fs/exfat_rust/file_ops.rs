@@ -66,16 +66,20 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
                 .take()
                 .unwrap_or_else(|| sb_lock.lock());
 
-            let entry_index = context.pos as u64 - ITER_POS_FILLED_DOTS;
-            context.pos += 1;
+            let entry_index = (context.pos as u64 - ITER_POS_FILLED_DOTS) as usize;
 
-            let reader = DirEntryReader::new(sb_info, &sb_state, inode.data_cluster)?;
-            let mut reader = reader.skip(entry_index as usize);
+            let mut reader = DirEntryReader::new(sb_info, &sb_state, inode.data_cluster)?;
+            if entry_index > 0 {
+                // skip to entry_index
+                reader.entries.nth(entry_index - 1).transpose()?;
+            }
 
             let dir_entry = match reader.next() {
                 None => break,
                 Some(entry) => entry?,
             };
+
+            context.pos = (dir_entry.index as u64 + ITER_POS_FILLED_DOTS + 1) as i64;
 
             let inum = if let Some(node) = sbi.inode_hashtable.lock().get(dir_entry.cluster, dir_entry.index) {
                 // SAFETY: TODO

@@ -68,6 +68,89 @@ impl<'a> ClusterChain<'a> {
         self.start_cluster
     }
 
+    /// Skip `n` number of bytes
+    pub(crate) fn skip(&mut self, n: usize) -> Result<()> {
+        let clusters = n / self.boot.cluster_size as usize;
+
+        let sectors_in_cluster =
+            (n % self.boot.cluster_size as usize) / self.sb.s_blocksize as usize;
+
+        let bytes_in_sector = n % self.sb.s_blocksize as usize;
+
+        //pr_err!(
+        //    "heap skip, n={n}, clusters={clusters}, sectors={}, bytes={}",
+        //    sectors_in_cluster,
+        //    bytes_in_sector
+        //);
+
+        let mut clusters_to_skip = clusters;
+        let mut sectors_to_skip = sectors_in_cluster as u64;
+        let mut bytes_to_skip = bytes_in_sector;
+
+        if let Some(cluster) = self.cluster.as_ref() {
+            let next_sector = cluster.sector_index + sectors_to_skip;
+            if next_sector >= self.boot.sect_per_clus as u64 {
+                clusters_to_skip += 1;
+                sectors_to_skip = next_sector - self.boot.sect_per_clus as u64;
+            }
+
+            if let Some(sector) = cluster.sector.as_ref() {
+                let next_byte = sector.byte_cursor + bytes_in_sector;
+                let block_size = self.sb.s_blocksize as usize;
+                if next_byte >= block_size {
+                    sectors_to_skip += 1;
+                    bytes_to_skip = next_byte - block_size;
+                }
+            }
+        }
+
+        if clusters_to_skip > 0 {
+            self.cluster = None;
+            if clusters_to_skip > 1 {
+                self.fat_reader.nth(clusters_to_skip - 2);
+            }
+        }
+
+        let mut cluster = match self.cluster.take() {
+            Some(mut cluster) => {
+                if sectors_to_skip > 0 {
+                    cluster.sector = None;
+                    cluster.sector_index += sectors_to_skip;
+                }
+                cluster
+            }
+            None => match self.fat_reader.next() {
+                Some(Ok(next_cluster)) => Cluster {
+                    index: next_cluster,
+                    sector_index: sectors_to_skip,
+                    sector: None,
+                },
+                Some(Err(e)) => return Err(e),
+                None => return Ok(()), // EOF
+            },
+        };
+
+        let sector = match cluster.sector.take() {
+            Some(mut sector) => {
+                sector.byte_cursor += bytes_to_skip;
+                sector
+            }
+            None => {
+                let sector =
+                    cluster_to_sector(self.boot, cluster.index) + cluster.sector_index as u64;
+                Sector {
+                    data: BufferHead::block_read(self.sb, sector).ok_or(Error::ENOMEM)?,
+                    byte_cursor: bytes_to_skip,
+                }
+            }
+        };
+
+        cluster.sector = Some(sector);
+        self.cluster = Some(cluster);
+
+        Ok(())
+    }
+
     /// Read the exact amount of bytes to fill `buf`.
     pub(crate) fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
         let mut buf = buf;
