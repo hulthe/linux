@@ -1,9 +1,9 @@
 use crate::inode::{inode_unique_num, Inode, InodeInfo};
 use core::ptr::NonNull;
-use kernel::bindings::igrab;
+use kernel::bindings::{igrab, GOLDEN_RATIO_64};
 use kernel::linked_list::{GetLinks, GetLinksWrapped, Links, List, Wrapper};
 
-const HASH_TABLE_BITS: usize = 8;
+const HASH_TABLE_BITS: u32 = 8;
 const HASH_TABLE_SIZE: usize = 1 << HASH_TABLE_BITS;
 
 pub(crate) struct InodeHashTable {
@@ -48,8 +48,11 @@ impl GetLinksWrapped for InodeInfo {
     type Wrapped = PtrWrapper<InodeInfo>;
 }
 
+#[inline]
 fn hash_inode_key(key: u64) -> usize {
-    (key % HASH_TABLE_SIZE as u64) as usize // TODO: actually hash the key
+    let (hash, _) = key.overflowing_mul(GOLDEN_RATIO_64);
+    let hash = hash >> (u64::BITS - HASH_TABLE_BITS); // high bits are more random
+    hash as usize
 }
 
 impl Default for InodeHashTable {

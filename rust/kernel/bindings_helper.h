@@ -33,6 +33,7 @@
 #include <linux/iversion.h>
 #include <linux/nls.h>
 #include <linux/mpage.h>
+#include <linux/statfs.h>
 
 // `bindgen` gets confused at certain things
 const gfp_t BINDINGS_GFP_KERNEL = GFP_KERNEL;

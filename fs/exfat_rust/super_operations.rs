@@ -1,12 +1,13 @@
+use crate::boot_sector::EXFAT_CLUSTERS_UNTRACKED;
 use crate::from_kernel_result;
 use crate::inode::{alloc_inode, free_inode, InodeExt};
 use crate::superblock::{take_sb, ExfatErrorMode};
 use crate::zeroed;
 use kernel::bindings::{
-    clear_inode, dentry as Dentry, i_size_write, inode as Inode, invalidate_inode_buffers,
-    kstatfs as KStatFs, seq_file as SeqFile, seq_printf, super_block as SuperBlock,
-    super_operations as SuperOperations, sync_blockdev, truncate_inode_pages,
-    writeback_control as WritebackControl,
+    clear_inode, dentry as Dentry, huge_encode_dev, i_size_write, inode as Inode,
+    invalidate_inode_buffers, kstatfs as KStatFs, seq_file as SeqFile, seq_printf,
+    super_block as SuperBlock, super_operations as SuperOperations, sync_blockdev,
+    truncate_inode_pages, u64_to_fsid, writeback_control as WritebackControl,
 };
 use kernel::c_types::{c_int, c_uint};
 
@@ -50,8 +51,8 @@ extern "C" fn exfat_evict_inode(inode: *mut Inode) {
     sbi.inode_hashtable.lock().evict(inode);
 }
 
-extern "C" fn exfat_put_super(_arg1: *mut SuperBlock) {
-    todo!("exfat_put_super called"); // TODO
+extern "C" fn exfat_put_super(sb: *mut SuperBlock) {
+    // TODO: They do some delayed_free bs here. Find out if we can ignore
 }
 
 extern "C" fn exfat_sync_fs(sb: *mut SuperBlock, wait: c_int) -> c_int {
@@ -74,8 +75,36 @@ extern "C" fn exfat_sync_fs(sb: *mut SuperBlock, wait: c_int) -> c_int {
     }
 }
 
-extern "C" fn exfat_statfs(_arg1: *mut Dentry, _arg2: *mut KStatFs) -> c_int {
-    todo!("exfat_statfs called"); // TODO
+extern "C" fn exfat_statfs(dentry: *mut Dentry, buf: *mut KStatFs) -> c_int {
+    kernel::pr_info!("### Rust ExFat ### statfs\n");
+
+    from_kernel_result! {
+        let sbi = unsafe { take_sb(&(*dentry).d_sb) };
+        let buf = unsafe { &mut *buf };
+        let boot = &sbi.info.boot_sector_info;
+
+        let state = sbi.state.lock();
+
+        let bd_dev = unsafe { (*state.sb.s_bdev).bd_dev };
+        let id = unsafe { huge_encode_dev(bd_dev) };
+
+        if boot.used_clusters == EXFAT_CLUSTERS_UNTRACKED {
+            // TODO: count used clusters
+        }
+
+        buf.f_type = state.sb.s_magic as i64;
+        buf.f_bsize = boot.cluster_size as i64;
+        buf.f_blocks = boot.num_clusters as u64 - 2;
+        //buf.f_bfree = buf.f_blocks - boot.used_clusters as u64;
+        buf.f_bfree = 0; // TODO
+        buf.f_bavail = buf.f_bfree;
+        buf.f_fsid = unsafe { u64_to_fsid(id) };
+
+        /* Unicode utf16 255 characters */
+        //buf->f_namelen = EXFAT_MAX_FILE_LEN * NLS_MAX_CHARSET_SIZE;
+
+        Ok(())
+    }
 }
 
 extern "C" fn exfat_show_options(m: *mut SeqFile, root: *mut Dentry) -> c_int {
