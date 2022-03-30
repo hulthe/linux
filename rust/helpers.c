@@ -41,6 +41,7 @@
 #include <linux/netdevice.h>
 #include <linux/fs_parser.h>
 #include <linux/buffer_head.h>
+#include <linux/statfs.h>
 
 __noreturn void rust_helper_BUG(void)
 {
@@ -705,6 +706,18 @@ void rust_helper_clear_buffer_delay(struct buffer_head *bh)
 	return clear_buffer_delay(bh);
 }
 EXPORT_SYMBOL_GPL(rust_helper_clear_buffer_delay);
+
+__kernel_fsid_t rust_helper_u64_to_fsid(u64 v)
+{
+	return u64_to_fsid(v);
+}
+EXPORT_SYMBOL_GPL(rust_helper_u64_to_fsid);
+
+u64 rust_helper_huge_encode_dev(dev_t dev)
+{
+	return huge_encode_dev(dev);
+}
+EXPORT_SYMBOL_GPL(rust_helper_huge_encode_dev);
 
 /*
  * We use `bindgen`'s `--size_t-is-usize` option to bind the C `size_t` type

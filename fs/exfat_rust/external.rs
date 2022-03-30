@@ -5,18 +5,19 @@ use kernel::bindings::{__bread_gfp, __brelse, buffer_head, sector_t, super_block
 use kernel::c_types::c_uint;
 
 pub(crate) struct BufferHead {
+    sector: sector_t,
     ptr: *mut buffer_head,
 }
 
 impl BufferHead {
-    pub(crate) fn block_read(sb: &super_block, block: sector_t) -> Option<Self> {
+    pub(crate) fn block_read(sb: &super_block, sector: sector_t) -> Option<Self> {
         let ptr = unsafe {
             // TODO: is this the right ___GFP_MOVABLE? (two vs three underscores)
             // SAFETY: i have no idea
-            __bread_gfp(sb.s_bdev, block, sb.s_blocksize as c_uint, ___GFP_MOVABLE).as_mut()?
+            __bread_gfp(sb.s_bdev, sector, sb.s_blocksize as c_uint, ___GFP_MOVABLE).as_mut()?
         };
 
-        Some(BufferHead { ptr })
+        Some(BufferHead { sector, ptr })
     }
 
     pub(crate) fn bytes(&self) -> &[u8] {
@@ -28,6 +29,10 @@ impl BufferHead {
 
     pub(crate) fn raw_bytes(&self) -> *const u8 {
         self.bytes().as_ptr()
+    }
+
+    pub(crate) fn sector(&self) -> sector_t {
+        self.sector
     }
 }
 

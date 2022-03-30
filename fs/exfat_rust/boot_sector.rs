@@ -23,7 +23,7 @@ const VOLUME_DIRTY_FLAG: u16 = 0x2;
 const MEDIA_FAILURE_FLAG: u16 = 0x4;
 
 const EXFAT_FIRST_CLUSTER: u32 = 2;
-const EXFAT_CLUSTERS_UNTRACKED: u32 = !0;
+pub(crate) const EXFAT_CLUSTERS_UNTRACKED: u32 = !0;
 
 const MUST_BE_ZERO_LEN: usize = 53;
 
