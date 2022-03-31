@@ -59,7 +59,6 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
             return Ok(())
         }
 
-
         let mut sb_lock_guard = Some(sb_state);
         loop {
             let mut sb_state = sb_lock_guard
