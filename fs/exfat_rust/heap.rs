@@ -105,9 +105,10 @@ impl<'a> ClusterChain<'a> {
         }
 
         if clusters_to_skip > 0 {
-            self.cluster = None;
-            if clusters_to_skip > 1 {
+            if self.cluster.take().is_some() && clusters_to_skip > 1 {
                 self.fat_reader.nth(clusters_to_skip - 2);
+            } else {
+                self.fat_reader.nth(clusters_to_skip - 1);
             }
         }
 
