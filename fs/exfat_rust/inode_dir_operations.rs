@@ -10,7 +10,7 @@ use kernel::bindings::{
 };
 use kernel::c_types::{c_int, c_uint};
 use kernel::prelude::*;
-use kernel::{from_kernel_err_ptr, Error};
+use kernel::{from_kernel_err_ptr, Error, Result};
 
 extern "C" fn exfat_create(
     _mnt_userns: *mut UserNamespace,
@@ -26,7 +26,7 @@ extern "C" fn exfat_create(
 fn find<'a>(
     sb_info: &'a SbInfo,
     sb_state: &'a SbState<'a>,
-    inode: &InodeInfo,
+    inode: &mut InodeInfo,
     name: String,
 ) -> Result<DirEntry> {
     if name.is_empty() {
@@ -41,22 +41,40 @@ fn find<'a>(
 fn find_dir<'a>(
     sb_info: &'a SbInfo,
     sb_state: &'a SbState<'a>,
-    inode: &InodeInfo,
+    inode: &mut InodeInfo,
     name: &str,
 ) -> Result<DirEntry> {
-    let reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
-
     // TODO: Add name hashing optimization & hint optimization.
 
-    for entry in reader {
-        let entry = entry?;
+    fn find_entry(reader: impl Iterator<Item = Result<DirEntry>>, name: &str) -> Result<DirEntry> {
+        for entry in reader {
+            let entry = entry?;
 
-        if entry.name == name {
-            return Ok(entry);
+            if entry.name == name {
+                return Ok(entry);
+            }
         }
+
+        Err(Error::ENOENT)
     }
 
-    Err(Error::ENOENT)
+    let mut reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
+    let entry = if inode.hint_last_file_index > 0 {
+        reader
+            .entries
+            .nth(inode.hint_last_file_index as usize)
+            .transpose()?;
+        let from_zero_reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
+        let hint_reader = reader.chain(from_zero_reader.take_while(|e| match e {
+            Ok(entry) => entry.index < inode.hint_last_file_index,
+            Err(_) => true,
+        }));
+        find_entry(hint_reader, name)?
+    } else {
+        find_entry(reader, name)?
+    };
+    inode.hint_last_file_index = entry.index;
+    Ok(entry)
 }
 
 /// Lookup a path in the given inode, if it exists return Ok with the UTF16 version of the name.

@@ -50,6 +50,9 @@ pub(crate) struct InodeInfo {
     /// The ExFatDirEntry index in the cluster chain
     pub(crate) entry_index: u32,
 
+    /// The last file that was looked up in this directory
+    pub(crate) hint_last_file_index: u32,
+
     /// The start of the cluster chain that contains the data for this inode
     pub(crate) data_cluster: u32,
 
@@ -226,6 +229,8 @@ impl PtrInit for InodeInfo {
             // zero-init everything
             dir_cluster: 0,
             entry_index: 0,
+
+            hint_last_file_index: 0,
 
             data_cluster: 0,
 
