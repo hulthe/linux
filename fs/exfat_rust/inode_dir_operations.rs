@@ -62,7 +62,7 @@ fn find_dir<'a>(
     let entry = if inode.hint_last_file_index > 0 {
         reader
             .entries
-            .nth(inode.hint_last_file_index as usize)
+            .nth((inode.hint_last_file_index - 1) as usize)
             .transpose()?;
         let from_zero_reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
         let hint_reader = reader.chain(from_zero_reader.take_while(|e| match e {
