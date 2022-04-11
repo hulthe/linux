@@ -226,20 +226,15 @@ impl Iterator for DirEntryReader<'_> {
             Err(e) => return Some(Err(e)),
         };
 
-        let mut next_index;
         let stream_ext = match self.entries.next() {
             Some(Err(e)) => {
                 pr_err!("Failed to retrieve next DirEntry, err {:?}", e);
                 return Some(Err(e));
             }
             Some(Ok(ExFatDirEntry {
-                index,
                 kind: ExFatDirEntryKind::StreamExtension(entry),
                 ..
-            })) => {
-                next_index = index + 1;
-                entry
-            }
+            })) => entry,
             None => {
                 pr_err!("ExFatDirEntryReader: expected StreamExtension, found nothing");
                 return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
@@ -268,13 +263,9 @@ impl Iterator for DirEntryReader<'_> {
                     return Some(Err(e));
                 }
                 Some(Ok(ExFatDirEntry {
-                    index,
                     kind: ExFatDirEntryKind::FileName(entry),
                     ..
-                })) => {
-                    next_index = index + 1;
-                    entry
-                }
+                })) => entry,
                 None => {
                     pr_err!("ExFatDirEntryReader: expected StreamExtension, found nothing");
                     return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
@@ -314,7 +305,7 @@ impl Iterator for DirEntryReader<'_> {
 
             cluster: file_entry.cluster,
             index: file_entry.index,
-            next_index,
+            next_index: self.entries.index,
 
             attrs: file.file_attributes,
             name,
