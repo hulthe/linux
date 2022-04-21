@@ -78,7 +78,6 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
                 Some(entry) => entry?,
             };
 
-
             let inum = if let Some(node) = sbi.inode_hashtable.lock().get(dir_entry.cluster, dir_entry.index) {
                 // SAFETY: TODO
                 unsafe { iput(node as *mut _ as *mut Inode); }
@@ -97,7 +96,9 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
             // SAFETY: TODO
             let success = unsafe { dir_emit(context, dir_entry.name.as_ptr() as *const i8, dir_entry.name.len() as i32, inum, emit_type) };
 
-            if !success {
+            if success {
+                context.pos = (dir_entry.next_index as u64 + ITER_POS_FILLED_DOTS) as i64;
+            } else {
                 break;
             }
 
