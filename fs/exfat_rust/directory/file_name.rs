@@ -1,4 +1,4 @@
-use super::ENTRY_SIZE;
+use super::EXFAT_DIR_ENTRY_SIZE;
 use core::char::DecodeUtf16Error;
 use core::mem::transmute;
 use kernel::endian::u16le;
@@ -12,7 +12,7 @@ pub(crate) struct FileName {
 }
 
 impl FileName {
-    pub(crate) fn from_bytes(bytes: [u8; ENTRY_SIZE]) -> Self {
+    pub(crate) fn from_bytes(bytes: [u8; EXFAT_DIR_ENTRY_SIZE]) -> Self {
         // SAFETY: File is repr(C), and consists only of integers.
         unsafe { transmute(bytes) }
     }

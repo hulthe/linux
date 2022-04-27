@@ -4,9 +4,10 @@ pub(crate) use self::hash_table::InodeHashTable;
 
 use crate::directory::file::{FileAttributes, ROOT_FILE_ATTRIBUTE};
 use crate::directory::{DirEntry, ExFatDirEntryKind, ExFatDirEntryReader};
-use crate::fat::FatChainReader;
+use crate::fat::{ClusterIndex, FatChainReader};
 use crate::file_operations::FILE_OPERATIONS;
 use crate::file_ops::DIR_OPERATIONS;
+use crate::hint::ClusterHint;
 use crate::inode_dir_operations::DIR_INODE_OPERATIONS;
 use crate::inode_file_operations::{ADDRESS_OPERATIONS, FILE_INODE_OPERATIONS};
 use crate::kmem_cache::KMemCache;
@@ -45,16 +46,19 @@ pub(crate) struct InodeInfo {
 
     // struct exfat_chain dir;
     /// The start of the cluster chain that contains the directory entry for this inode
-    pub(crate) dir_cluster: u32,
+    pub(crate) dir_cluster: ClusterIndex,
 
     /// The ExFatDirEntry index in the cluster chain
     pub(crate) entry_index: u32,
+
+    /// The last cluster that was accessed in this file/dir
+    pub(crate) hint_last_cluster: Option<ClusterHint>,
 
     /// The last file that was looked up in this directory
     pub(crate) hint_last_file_index: u32,
 
     /// The start of the cluster chain that contains the data for this inode
-    pub(crate) data_cluster: u32,
+    pub(crate) data_cluster: ClusterIndex,
 
     pub(crate) size_aligned: u64,
     pub(crate) size_ondisk: u64,
@@ -118,7 +122,7 @@ impl InodeInfo {
     }
 
     fn fill(&mut self, sb_info: &SbInfo, sb_state: &SbState<'_>, dir: &DirEntry) {
-        self.dir_cluster = dir.cluster;
+        self.dir_cluster = dir.chain_start;
         self.entry_index = dir.index;
         self.data_cluster = dir.data_cluster;
         //ei->dir = info->dir;
@@ -195,7 +199,7 @@ impl InodeInfo {
         inode_hashtable: &SpinLock<InodeHashTable>,
         dir: &DirEntry,
     ) -> Result<&'a mut Self> {
-        if let Some(inode) = inode_hashtable.lock().get(dir.cluster, dir.index) {
+        if let Some(inode) = inode_hashtable.lock().get(dir.chain_start, dir.index) {
             return Ok(inode);
         }
 
@@ -230,6 +234,7 @@ impl PtrInit for InodeInfo {
             dir_cluster: 0,
             entry_index: 0,
 
+            hint_last_cluster: None,
             hint_last_file_index: 0,
 
             data_cluster: 0,
