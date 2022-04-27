@@ -10,6 +10,7 @@ mod file_operations;
 mod file_ops;
 mod fs_parameter;
 mod heap;
+mod hint;
 mod inode;
 mod inode_dir_operations;
 mod inode_file_operations;
@@ -21,6 +22,7 @@ mod superblock;
 mod upcase;
 
 use crate::allocation_bitmap::load_allocation_bitmap;
+use crate::directory::EXFAT_DIR_ENTRY_SIZE_BITS;
 use crate::inode::{InodeExt, INODE_ALLOC_CACHE};
 use crate::superblock::{ExfatMountOptions, SbInfo, SbState, SuperBlock, SuperBlockInfo};
 use core::mem::MaybeUninit;
@@ -136,16 +138,17 @@ extern "C" fn exfat_fill_super(sb: *mut SuperBlock, fc: *mut FsContext) -> c_int
         sb.s_time_max = EXFAT_MAX_TIMESTAMP_SECS;
 
         let mut sb_state = SbState { sb };
-        let boot_sector_info = boot_sector::read_boot_sector(&mut sb_state)?;
+        let boot = boot_sector::read_boot_sector(&mut sb_state)?;
         boot_sector::verify_boot_region(&mut sb_state)?;
-        let upcase_table = upcase::create_upcase_table(&boot_sector_info, &mut sb_state)?;
+        let upcase_table = upcase::create_upcase_table(&boot, &mut sb_state)?;
 
         // Properly initialize sbi and write the struct to the previously allocated memory
         let sbi = sbi.write(SuperBlockInfo {
-            allocation_bitmap: load_allocation_bitmap(&boot_sector_info, &mut sb_state)?,
+            allocation_bitmap: load_allocation_bitmap(&boot, &mut sb_state)?,
 
             info: SbInfo {
-                boot_sector_info,
+                dir_entries_per_cluster: boot.cluster_size >> EXFAT_DIR_ENTRY_SIZE_BITS,
+                boot_sector_info: boot,
                 options,
                 upcase_table,
             },

@@ -62,8 +62,7 @@ fn find_dir<'a>(
     let entry = if inode.hint_last_file_index > 0 {
         reader
             .entries
-            .nth((inode.hint_last_file_index - 1) as usize)
-            .transpose()?;
+            .advance_by((inode.hint_last_file_index) as usize)?;
         let from_zero_reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
         let hint_reader = reader.chain(from_zero_reader.take_while(|e| match e {
             Ok(entry) => entry.index < inode.hint_last_file_index,
@@ -122,6 +121,7 @@ fn lookup<'a>(
     let sb_info = &sbi.info;
 
     let path_name = path_name.to_str()?.try_to_owned()?;
+
     let dir_entry = find(sb_info, &sb_state, dir_inode, path_name)?;
     let is_dir = dir_entry.attrs.directory();
 

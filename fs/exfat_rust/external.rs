@@ -1,7 +1,9 @@
 //! stuff that should probably be moved to kernel lib
 
 use core::slice;
-use kernel::bindings::{__bread_gfp, __brelse, buffer_head, sector_t, super_block, ___GFP_MOVABLE};
+use kernel::bindings::{
+    __bread_gfp, __breadahead, __brelse, buffer_head, sector_t, super_block, ___GFP_MOVABLE,
+};
 use kernel::c_types::c_uint;
 
 pub(crate) struct BufferHead {
@@ -33,6 +35,13 @@ impl BufferHead {
 
     pub(crate) fn sector(&self) -> sector_t {
         self.sector
+    }
+
+    pub(crate) fn readahead(&self, sb: &super_block) {
+        unsafe {
+            // SAFETY: TODO
+            __breadahead(sb.s_bdev, self.sector, sb.s_blocksize as u32);
+        }
     }
 }
 

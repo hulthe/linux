@@ -1,5 +1,6 @@
 use crate::directory::DirEntryReader;
 use crate::from_kernel_result;
+use crate::hint::ClusterHint;
 use crate::inode::{Inode, InodeExt};
 use crate::superblock::take_sb;
 use crate::zeroed;
@@ -47,8 +48,8 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
         let context = unsafe { &mut *context };
         let file = unsafe { &mut *file };
         let dentry = unsafe { &*file.f_path.dentry };
-        let inode = unsafe { &*dentry.d_inode };
-        let inode = inode.to_info();
+        let inode = unsafe { &mut *dentry.d_inode };
+        let inode = inode.to_info_mut();
 
         let sbi = take_sb(&inode.vfs_inode.i_sb);
         let sb_info = &sbi.info;
@@ -59,6 +60,7 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
             return Ok(())
         }
 
+
         let mut sb_lock_guard = Some(sb_state);
         loop {
             let mut sb_state = sb_lock_guard
@@ -67,18 +69,23 @@ extern "C" fn exfat_iterate(file: *mut File, context: *mut DirContext) -> c_int 
 
             let entry_index = (context.pos as u64 - ITER_POS_FILLED_DOTS) as usize;
 
-            let mut reader = DirEntryReader::new(sb_info, &sb_state, inode.data_cluster)?;
-            if entry_index > 0 {
-                // skip to entry_index
-                reader.entries.nth(entry_index - 1).transpose()?;
-            }
+            let mut reader = DirEntryReader::new_at(sb_info, &sb_state, inode.data_cluster,
+                entry_index as u32, inode.hint_last_cluster)?;
 
             let dir_entry = match reader.next() {
                 None => break,
+                // TODO: in case of an I/O error, we should skip context.pos to the next sector, in
+                // case this sector was just bad.
                 Some(entry) => entry?,
             };
 
-            let inum = if let Some(node) = sbi.inode_hashtable.lock().get(dir_entry.cluster, dir_entry.index) {
+            inode.hint_last_cluster = ClusterHint::new(
+                dir_entry.cluster_index,
+                dir_entry.index / sb_info.dir_entries_per_cluster,
+            );
+
+
+            let inum = if let Some(node) = sbi.inode_hashtable.lock().get(dir_entry.chain_start, dir_entry.index) {
                 // SAFETY: TODO
                 unsafe { iput(node as *mut _ as *mut Inode); }
                 node.vfs_inode.i_ino

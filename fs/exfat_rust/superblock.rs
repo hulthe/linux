@@ -35,6 +35,9 @@ pub(crate) struct SuperBlockInfo<'a> {
 }
 
 pub(crate) struct SbInfo {
+    /// The number of ExFatDirEntry that fits in a cluster
+    pub(crate) dir_entries_per_cluster: u32,
+
     pub(crate) boot_sector_info: BootSectorInfo,
 
     pub(crate) options: ExfatMountOptions,

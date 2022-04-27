@@ -16,6 +16,7 @@ use volume_label::VolumeLabel;
 
 use crate::fat::ClusterIndex;
 use crate::heap::ClusterChain;
+use crate::hint::ClusterHint;
 use crate::superblock::{BootSectorInfo, SbInfo, SbState};
 use alloc::string::String;
 use core::iter::FusedIterator;
@@ -27,8 +28,9 @@ use kernel::{pr_err, Error, Result};
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ToDo;
 
-/// The size of a directory  in bytes
-const ENTRY_SIZE: usize = 32;
+/// The size of a directory in bytes
+pub(crate) const EXFAT_DIR_ENTRY_SIZE: usize = 1 << EXFAT_DIR_ENTRY_SIZE_BITS; // 32
+pub(crate) const EXFAT_DIR_ENTRY_SIZE_BITS: usize = 5;
 
 // TODO: copied constants from C, pls rename at your earliest convenience. thank
 const ENTRY_TYPE_END_OF_DIRECTORY: u8 = 0x00;
@@ -47,8 +49,11 @@ const ENTRY_TYPE_ACL: u8 = 0xC2;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ExFatDirEntry {
-    /// The start of the cluster chain with the directory set which contains this entry
-    pub(crate) cluster: u32,
+    /// The start of the cluster chain which contains this entry
+    pub(crate) chain_start: u32,
+
+    /// The cluster which contains this entry
+    pub(crate) cluster_index: u32,
 
     /// The index of this entry within the directory set
     pub(crate) index: u32,
@@ -92,13 +97,61 @@ impl<'a> ExFatDirEntryReader<'a> {
     pub(crate) fn new(
         boot: &'a BootSectorInfo,
         sb_state: &'a SbState<'a>,
-        index: ClusterIndex,
+        cluster: ClusterIndex,
     ) -> Result<Self> {
         Ok(Self {
-            chain: ClusterChain::new(boot, sb_state, index)?,
+            chain: ClusterChain::new(boot, sb_state, cluster)?.enable_readahead(),
             fused: false,
             index: 0,
         })
+    }
+
+    pub(crate) fn new_at(
+        sb_info: &'a SbInfo,
+        sb_state: &'a SbState<'a>,
+        cluster: ClusterIndex,
+        index: u32,
+        hint: Option<ClusterHint>,
+    ) -> Result<Self> {
+        let cluster_offset = index / sb_info.dir_entries_per_cluster;
+        let mut advance_by = index;
+        let mut index = 0;
+        let mut cluster = cluster;
+
+        if let Some(hint) = hint {
+            if hint.offset > 0 && cluster_offset >= hint.offset {
+                cluster = hint.index.get();
+
+                let dir_entries_skipped = hint.offset * sb_info.dir_entries_per_cluster;
+                advance_by -= dir_entries_skipped;
+                index += dir_entries_skipped;
+            }
+        }
+
+        let mut reader = Self {
+            chain: ClusterChain::new(&sb_info.boot_sector_info, sb_state, cluster)?
+                .enable_readahead(),
+            fused: false,
+            index,
+        };
+
+        reader.advance_by(advance_by as usize)?;
+
+        Ok(reader)
+    }
+}
+
+impl ExFatDirEntryReader<'_> {
+    pub(crate) fn advance_by(&mut self, n: usize) -> Result<()> {
+        if n > 0 {
+            self.index += n as u32;
+            if let Err(e) = self.chain.skip(EXFAT_DIR_ENTRY_SIZE * n) {
+                self.fused = true;
+                return Err(e);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -107,14 +160,9 @@ impl Iterator for ExFatDirEntryReader<'_> {
     type Item = Result<ExFatDirEntry>;
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        if n > 0 {
-            self.index += n as u32;
-            if let Err(e) = self.chain.skip(ENTRY_SIZE * n) {
-                self.fused = true;
-                return Some(Err(e));
-            }
-        }
-        self.next()
+        self.advance_by(n)
+            .and_then(|_| self.next().transpose())
+            .transpose()
     }
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -127,6 +175,7 @@ impl Iterator for ExFatDirEntryReader<'_> {
 
         let mut buf = [0u8; 32];
 
+        let current_cluster = self.chain.index();
         if let Err(e) = self.chain.read_exact(&mut buf) {
             self.fused = true;
             return Some(Err(e));
@@ -155,9 +204,12 @@ impl Iterator for ExFatDirEntryReader<'_> {
         };
 
         Some(Ok(ExFatDirEntry {
-            cluster: self.chain.start_cluster(),
+            chain_start: self.chain.start_cluster(),
             index,
             kind,
+
+            // there has to be a current cluster, since we were able to call chain.read
+            cluster_index: current_cluster.unwrap().unwrap(),
         }))
     }
 }
@@ -171,7 +223,10 @@ pub(crate) struct DirEntry {
     pub(crate) data_length: u64,
 
     /// The start of the cluster chain which has the directory set that contains this entry.
-    pub(crate) cluster: u32,
+    pub(crate) chain_start: ClusterIndex,
+
+    /// The cluster which has the start of the directory set that contains this entry.
+    pub(crate) cluster_index: ClusterIndex,
 
     /// The index of this entry in the directory set
     ///
@@ -199,11 +254,30 @@ impl<'a> DirEntryReader<'a> {
     pub(crate) fn new(
         sb_info: &'a SbInfo,
         sb_state: &'a SbState<'a>,
-        index: ClusterIndex,
+        cluster: ClusterIndex,
     ) -> Result<Self> {
         Ok(Self {
             sb_info,
-            entries: ExFatDirEntryReader::new(&sb_info.boot_sector_info, sb_state, index)?,
+            entries: ExFatDirEntryReader::new(&sb_info.boot_sector_info, sb_state, cluster)?,
+        })
+    }
+
+    pub(crate) fn new_at(
+        sb_info: &'a SbInfo,
+        sb_state: &'a SbState<'a>,
+        cluster: ClusterIndex,
+        exfat_dir_entry_index: u32,
+        hint: Option<ClusterHint>,
+    ) -> Result<Self> {
+        Ok(Self {
+            sb_info,
+            entries: ExFatDirEntryReader::new_at(
+                sb_info,
+                sb_state,
+                cluster,
+                exfat_dir_entry_index,
+                hint,
+            )?,
         })
     }
 }
@@ -303,7 +377,8 @@ impl Iterator for DirEntryReader<'_> {
             data_cluster: stream_ext.first_cluster.to_native(),
             data_length: stream_ext.data_length.to_native(),
 
-            cluster: file_entry.cluster,
+            chain_start: file_entry.chain_start,
+            cluster_index: file_entry.cluster_index,
             index: file_entry.index,
             next_index: self.entries.index,
 
