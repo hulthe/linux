@@ -5,7 +5,6 @@ use crate::heap::cluster_to_sector;
 use crate::superblock::{BootSectorInfo, SbState};
 use kernel::bindings::sector_t;
 use kernel::prelude::*;
-use kernel::{pr_err, pr_info, Error, Result};
 
 pub(crate) type UpcaseTable = Box<[u16]>;
 
@@ -36,7 +35,7 @@ pub(crate) fn create_upcase_table(
                 num_sectors,
                 table.table_checksum.to_native(),
             ) {
-                e @ Err(Error::EIO) => return e,
+                e @ Err(EIO) => return e,
                 Err(err) => {
                     pr_info!("Failed to load upcase table, err: {:?}", err);
                     load_default_upcase_table()
@@ -80,7 +79,7 @@ fn load_upcase_table(
     while sector < num_sectors {
         let bh = BufferHead::block_read(sb_state.sb, sector).ok_or_else(|| {
             pr_err!("Failed to read sector");
-            Error::EIO
+            EIO
         })?;
 
         sector += 1;
@@ -124,6 +123,6 @@ fn load_upcase_table(
         Ok(upcase_table)
     } else {
         pr_err!("Failed to load upcase table");
-        Err(Error::EINVAL)
+        Err(EINVAL)
     }
 }

@@ -7,8 +7,9 @@ use kernel::bindings::{
     slab_flags_t,
 };
 use kernel::c_types::{c_char, c_uint, c_void};
+use kernel::pr_err;
+use kernel::prelude::*;
 use kernel::str::CStr;
-use kernel::{pr_err, Error, Result};
 
 pub(crate) struct KMemCache<T> {
     _phantom: PhantomData<T>,
@@ -56,7 +57,7 @@ impl<T: PtrInit> KMemCache<T> {
                 Some(Self::object_constructor),
             )
         };
-        let cache = Some(NonNull::new(cache).ok_or(Error::ENOMEM)?);
+        let cache = Some(NonNull::new(cache).ok_or(ENOMEM)?);
         unsafe { *self.cache.get() = cache }
 
         Ok(())
@@ -82,7 +83,7 @@ impl<T: PtrInit> KMemCache<T> {
         cache
             .ok_or_else(|| {
                 pr_err!("kmem_cache was not properly initialized before use");
-                Error::EINVAL
+                EINVAL
             })
             .map(|non_null| non_null.as_ptr())
     }
@@ -94,7 +95,7 @@ impl<T: PtrInit> KMemCache<T> {
         // properly initialized by a call to self.crate()
         let ptr = unsafe { kmem_cache_alloc(cache, flags) as *mut T };
 
-        NonNull::new(ptr).ok_or(Error::ENOMEM)
+        NonNull::new(ptr).ok_or(ENOMEM)
     }
 
     /// SAFETY: `object` must have been previously allocated by a call to `alloc`.

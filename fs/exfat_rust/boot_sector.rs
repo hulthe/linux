@@ -4,7 +4,7 @@ use crate::superblock::{BootSectorInfo, SbState};
 use core::mem::size_of;
 use kernel::bindings::sb_min_blocksize;
 use kernel::endian::{u16le, u32le, u64le};
-use kernel::{pr_err, pr_warn, Error, Result};
+use kernel::prelude::*;
 
 const JUMP_BOOT_VALUE: [u8; 3] = [0xEB, 0x76, 0x90];
 const FILESYSTEM_NAME: &[u8] = b"EXFAT   ";
@@ -64,7 +64,7 @@ pub(crate) fn read_boot_sector(sb_state: &mut SbState<'_>) -> Result<BootSectorI
     // The boot sector should be the first on the disk, read sector 0.
     let bh = BufferHead::block_read(sb, 0).ok_or_else(|| {
         pr_err!("unable to read boot sector");
-        Error::EIO
+        EIO
     })?;
 
     let b_data = bh.raw_bytes() as *const BootRegion;
@@ -74,23 +74,23 @@ pub(crate) fn read_boot_sector(sb_state: &mut SbState<'_>) -> Result<BootSectorI
     // TODO: Ensure conversion from little endian.
     if boot_region.boot_signature.to_native() != BOOT_SIGNATURE {
         pr_err!("invalid boot record signature");
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     if boot_region.filesystem_name != FILESYSTEM_NAME {
         pr_err!("invalid fs_name");
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     // must_be_zero field must be filled with zero to prevent mounting from FAT volume.
     if boot_region.must_be_zero != [0; MUST_BE_ZERO_LEN] {
         pr_err!("must_be_zero is not zero");
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     if boot_region.number_of_fats != 1 && boot_region.number_of_fats != 2 {
         pr_err!("bogus number of FAT structures");
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     if boot_region.bytes_per_sector_shift < MIN_BYTES_PER_SECTOR_SHIFT
@@ -100,7 +100,7 @@ pub(crate) fn read_boot_sector(sb_state: &mut SbState<'_>) -> Result<BootSectorI
             "bogus sector size bits {}",
             boot_region.bytes_per_sector_shift
         );
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     if boot_region.sectors_per_cluster_shift > 25 - boot_region.bytes_per_sector_shift {
@@ -108,12 +108,12 @@ pub(crate) fn read_boot_sector(sb_state: &mut SbState<'_>) -> Result<BootSectorI
             "bogus sectors per cluster : {}",
             boot_region.sectors_per_cluster_shift
         );
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     if boot_region.jump_boot != JUMP_BOOT_VALUE {
         pr_err!("invlid jump boot value");
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     let cluster_size_bits: u32 =
@@ -148,7 +148,7 @@ pub(crate) fn read_boot_sector(sb_state: &mut SbState<'_>) -> Result<BootSectorI
         < boot_sector_info.num_clusters * 4
     {
         pr_err!("bogus fat length");
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     if boot_sector_info.data_start_sector
@@ -156,7 +156,7 @@ pub(crate) fn read_boot_sector(sb_state: &mut SbState<'_>) -> Result<BootSectorI
             + (boot_sector_info.num_fat_sectors * boot_region.number_of_fats as u32) as u64
     {
         pr_err!("bogus data start sector");
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     if (boot_sector_info.vol_flags & VOLUME_DIRTY_FLAG as u32) != 0 {
@@ -178,7 +178,7 @@ pub(crate) fn verify_boot_region(sb_state: &mut SbState<'_>) -> Result {
 
     // Read boot sector sub-regions
     for sn in 0..11 {
-        let bh = BufferHead::block_read(sb, sn).ok_or(Error::EIO)?;
+        let bh = BufferHead::block_read(sb, sn).ok_or(EIO)?;
 
         let sector_data = bh.bytes();
 
@@ -190,7 +190,7 @@ pub(crate) fn verify_boot_region(sb_state: &mut SbState<'_>) -> Result {
             let signature = u32::from_le_bytes(
                 sector_data[blocksize - 4..blocksize]
                     .try_into()
-                    .or_else(|_| Err(Error::EIO))?,
+                    .or_else(|_| Err(EIO))?,
             );
 
             if signature != EXBOOT_SIGNATURE {
@@ -210,17 +210,14 @@ pub(crate) fn verify_boot_region(sb_state: &mut SbState<'_>) -> Result {
     }
 
     // Boot checksum sub-regions
-    let bh = BufferHead::block_read(sb, 11).ok_or(Error::EIO)?;
+    let bh = BufferHead::block_read(sb, 11).ok_or(EIO)?;
     let sector_data: &[u8] = bh.bytes();
 
     for i in (0..sb.s_blocksize).step_by(size_of::<u32>()) {
         let i = i as usize;
         // Assumes that sector_data is i + 4 long.
-        let checksum_on_disk = u32::from_le_bytes(
-            sector_data[i..i + 4]
-                .try_into()
-                .or_else(|_| Err(Error::EIO))?,
-        );
+        let checksum_on_disk =
+            u32::from_le_bytes(sector_data[i..i + 4].try_into().or_else(|_| Err(EIO))?);
 
         if checksum_on_disk != checksum {
             pr_err!(
@@ -228,7 +225,7 @@ pub(crate) fn verify_boot_region(sb_state: &mut SbState<'_>) -> Result {
                 checksum_on_disk,
                 checksum
             );
-            return Err(Error::EINVAL);
+            return Err(EINVAL);
         }
     }
 

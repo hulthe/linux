@@ -4,7 +4,6 @@ use crate::superblock::SbInfo;
 use kernel::bindings::{utf16_endian_UTF16_HOST_ENDIAN, utf8s_to_utf16s};
 use kernel::endian::u16le;
 use kernel::prelude::*;
-use kernel::{pr_err, Error, Result};
 
 // TODO: These constants should probably be moved somewhere else.
 // Max length of a filename excluding NULL
@@ -61,7 +60,7 @@ impl UTF16String {
         };
 
         if length_or_err < 0 {
-            return Err(Error::EINVAL);
+            return Err(EINVAL);
         }
 
         let length = length_or_err;
@@ -72,7 +71,7 @@ impl UTF16String {
                 length_or_err,
                 MAX_NAME_LEN
             );
-            return Err(Error::ENAMETOOLONG);
+            return Err(ENAMETOOLONG);
         }
 
         // TODO: Implement

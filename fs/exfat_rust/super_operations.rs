@@ -51,7 +51,7 @@ extern "C" fn exfat_evict_inode(inode: *mut Inode) {
     sbi.inode_hashtable.lock().evict(inode);
 }
 
-extern "C" fn exfat_put_super(sb: *mut SuperBlock) {
+extern "C" fn exfat_put_super(_sb: *mut SuperBlock) {
     // TODO: They do some delayed_free bs here. Find out if we can ignore
 }
 

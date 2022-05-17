@@ -23,8 +23,9 @@ use kernel::bindings::{
     ___GFP_DIRECT_RECLAIM, ___GFP_IO, ___GFP_KSWAPD_RECLAIM,
 };
 use kernel::linked_list::Links;
+use kernel::prelude::*;
+use kernel::static_assert;
 use kernel::sync::SpinLock;
-use kernel::{static_assert, Error, Result};
 
 pub(crate) type Inode = kernel::bindings::inode;
 
@@ -204,7 +205,7 @@ impl InodeInfo {
         }
 
         // SAFETY: TODO
-        let inode = unsafe { new_inode(sb_state.sb).as_mut() }.ok_or(Error::ENOMEM)?;
+        let inode = unsafe { new_inode(sb_state.sb).as_mut() }.ok_or(ENOMEM)?;
 
         inode.i_ino = unsafe { iunique(sb_state.sb, EXFAT_ROOT_INO) };
         unsafe { inode_set_iversion(inode, 1) };

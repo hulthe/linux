@@ -1,7 +1,7 @@
 use crate::external::BufferHead;
 use crate::superblock::{BootSectorInfo, SuperBlock};
 use core::mem::size_of;
-use kernel::{pr_err, Error, Result};
+use kernel::prelude::*;
 
 pub(crate) type ClusterIndex = u32;
 
@@ -68,7 +68,7 @@ impl Iterator for FatChainReader<'_> {
                 Some(Ok(index + 1))
             }
             FAT_ENTRY_EOF => None,
-            FAT_ENTRY_BAD => Some(Err(Error::EIO)),
+            FAT_ENTRY_BAD => Some(Err(EIO)),
 
             _ if next > index => {
                 self.read_next = Some(next);
@@ -76,7 +76,7 @@ impl Iterator for FatChainReader<'_> {
             }
             _ => {
                 pr_err!("error: next FAT entry is smaller than current");
-                Some(Err(Error::EIO))
+                Some(Err(EIO))
             }
         }
     }

@@ -132,7 +132,7 @@ impl ExfatErrorMode {
             0 => Self::Continue,
             1 => Self::Panic,
             2 => Self::RemountRo,
-            _ => return Err(Error::EINVAL),
+            _ => return Err(EINVAL),
         })
     }
 

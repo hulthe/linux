@@ -39,7 +39,7 @@ use kernel::bindings::{
 use kernel::c_types::{c_int, c_void};
 use kernel::prelude::*;
 use kernel::sync::{Mutex, SpinLock};
-use kernel::{pr_warn, Error, Result, ThisModule};
+use kernel::Module;
 
 struct ExFatRust;
 
@@ -187,7 +187,7 @@ extern "C" fn exfat_fill_super(sb: *mut SuperBlock, fc: *mut FsContext) -> c_int
 
         let root_inode: &mut Inode = unsafe { new_inode(*sb).as_mut() }.ok_or_else(|| {
             pr_err!("Failed to allocate root inode");
-            Error::ENOMEM
+            ENOMEM
         })?;
 
         root_inode.i_ino = EXFAT_ROOT_INO;
@@ -206,7 +206,7 @@ extern "C" fn exfat_fill_super(sb: *mut SuperBlock, fc: *mut FsContext) -> c_int
         sb.s_root = unsafe { d_make_root(root_inode) };
         if sb.s_root.is_null() {
             pr_err!("failed to get the root dentry");
-            return Err(Error::ENOMEM);
+            return Err(ENOMEM);
         }
 
         pr_info!("exfat_fill_super exit");
@@ -264,7 +264,7 @@ module! {
     license: b"GPL v2",
 }
 
-impl KernelModule for ExFatRust {
+impl Module for ExFatRust {
     fn init(_name: &'static CStr, module: &'static ThisModule) -> Result<Self> {
         pr_info!("### Rust ExFat ### init\n");
 

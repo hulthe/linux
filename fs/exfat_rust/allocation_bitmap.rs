@@ -4,7 +4,7 @@ use crate::superblock::{BootSectorInfo, SbState};
 use crate::BITS_PER_BYTE;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use kernel::{pr_err, Error, Result};
+use kernel::prelude::*;
 
 pub(crate) struct AllocationBitmap {
     // INVARIANT: the trailing bits in the last byte must be 0
@@ -41,12 +41,12 @@ pub(crate) fn load_allocation_bitmap(
             Ok(ExFatDirEntryKind::AllocationBitmap(entry)) => Some(Ok(entry)),
             Ok(_) => None,
         })
-        .ok_or(Error::EINVAL)??;
+        .ok_or(EINVAL)??;
 
     // flags specify which fat this allocation bitmap refers to
     if bitmap_entry.bitmap_flags != 0x0 {
         // return if this allocation bitmap refers to the second FAT
-        return Err(Error::EINVAL);
+        return Err(EINVAL);
     }
 
     let cluster = bitmap_entry.first_cluster.to_native();
@@ -60,7 +60,7 @@ pub(crate) fn load_allocation_bitmap(
 
         // Only allowed when bogus allocation bitmap size is large
         if size < required_size {
-            return Err(Error::EIO);
+            return Err(EIO);
         }
     }
 

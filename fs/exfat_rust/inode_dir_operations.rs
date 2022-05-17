@@ -9,8 +9,8 @@ use kernel::bindings::{
     user_namespace as UserNamespace, DCACHE_DISCONNECTED,
 };
 use kernel::c_types::{c_int, c_uint};
+use kernel::from_kernel_err_ptr;
 use kernel::prelude::*;
-use kernel::{from_kernel_err_ptr, Error, Result};
 
 extern "C" fn exfat_create(
     _mnt_userns: *mut UserNamespace,
@@ -30,7 +30,7 @@ fn find<'a>(
     name: String,
 ) -> Result<DirEntry> {
     if name.is_empty() {
-        return Err(Error::ENOENT);
+        return Err(ENOENT);
     }
 
     let name = resolve_path(sb_info, sb_state, name)?;
@@ -55,7 +55,7 @@ fn find_dir<'a>(
             }
         }
 
-        Err(Error::ENOENT)
+        Err(ENOENT)
     }
 
     let mut reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
@@ -86,11 +86,11 @@ fn resolve_path<'a>(
     // Remove trailing periods.
     let stripped = path.trim_end_matches(".");
     if stripped.is_empty() {
-        return Err(Error::ENOENT);
+        return Err(ENOENT);
     }
 
     if path.len() > (MAX_NAME_LEN as usize * MAX_CHARSET_SIZE as usize) {
-        return Err(Error::ENAMETOOLONG);
+        return Err(ENAMETOOLONG);
     }
 
     // Here we should strip all leading spaces :
@@ -102,7 +102,7 @@ fn resolve_path<'a>(
 
     // I guess this is not needed?
     // if utf16.0.len() == 0 {
-    //     return Err(Error::EINVAL);
+    //     return Err(EINVAL);
     // }
 
     // TODO: Lossy handling

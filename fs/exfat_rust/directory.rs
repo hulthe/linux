@@ -23,7 +23,6 @@ use core::iter::FusedIterator;
 use core::ops::Range;
 use kernel::bindings::timespec64;
 use kernel::prelude::*;
-use kernel::{pr_err, Error, Result};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ToDo;
@@ -311,11 +310,11 @@ impl Iterator for DirEntryReader<'_> {
             })) => entry,
             None => {
                 pr_err!("ExFatDirEntryReader: expected StreamExtension, found nothing");
-                return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
+                return Some(Err(EIO)); // TODO: not sure which error is appropriate here
             }
             Some(Ok(v)) => {
                 pr_err!("Error, expected StreamExtension, found entry: {:?}", v);
-                return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
+                return Some(Err(EIO)); // TODO: not sure which error is appropriate here
             }
         };
 
@@ -342,17 +341,17 @@ impl Iterator for DirEntryReader<'_> {
                 })) => entry,
                 None => {
                     pr_err!("ExFatDirEntryReader: expected StreamExtension, found nothing");
-                    return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
+                    return Some(Err(EIO)); // TODO: not sure which error is appropriate here
                 }
                 Some(Ok(v)) => {
                     pr_err!("Error, expected FileName, found entry: {:?}", v);
-                    return Some(Err(Error::EIO)); // TODO: not sure which error is appropriate here
+                    return Some(Err(EIO)); // TODO: not sure which error is appropriate here
                 }
             };
 
             for c in file_name_entry.chars() {
                 let c = match c {
-                    Err(_e) => return Some(Err(Error::EIO)), // TODO: not sure which error
+                    Err(_e) => return Some(Err(EIO)), // TODO: not sure which error
                     Ok(c) => c,
                 };
 
@@ -369,7 +368,7 @@ impl Iterator for DirEntryReader<'_> {
             Ok(v) => v,
             Err(err) => {
                 pr_err!("Failed to convert namebuffer to utf8, err {}", err);
-                return Some(Err(Error::EINVAL)); // TODO: Not sure about error...
+                return Some(Err(EINVAL)); // TODO: Not sure about error...
             }
         };
 

@@ -3,7 +3,8 @@ use crate::fat::ClusterIndex;
 use crate::fat::FatChainReader;
 use crate::superblock::{BootSectorInfo, SbState, SuperBlock, NUM_RESERVED_CLUSTERS};
 use core::cmp::min;
-use kernel::{pr_err, Error, Result};
+use kernel::pr_err;
+use kernel::prelude::*;
 
 pub(crate) struct ClusterChain<'a> {
     boot: &'a BootSectorInfo,
@@ -54,7 +55,7 @@ impl<'a> ClusterChain<'a> {
         let cluster_end = cluster_count + NUM_RESERVED_CLUSTERS;
         if !(NUM_RESERVED_CLUSTERS..cluster_end).contains(&index) {
             pr_err!("Tried to read invalid cluster index: 0x{index:x}");
-            return Err(Error::EINVAL);
+            return Err(EINVAL);
         }
 
         Ok(ClusterChain {
@@ -161,7 +162,7 @@ impl<'a> ClusterChain<'a> {
                 let sector =
                     cluster_to_sector(self.boot, cluster.index) + cluster.sector_index as u64;
 
-                let data = BufferHead::block_read(self.sb, sector).ok_or(Error::ENOMEM)?;
+                let data = BufferHead::block_read(self.sb, sector).ok_or(ENOMEM)?;
                 if self.readahead {
                     data.readahead(self.sb);
                 }
@@ -184,7 +185,7 @@ impl<'a> ClusterChain<'a> {
         let mut buf = buf;
         loop {
             match self.read(buf)? {
-                0 => return Err(Error::EIO), // TODO: find a more suitable error
+                0 => return Err(EIO), // TODO: find a more suitable error
                 n if n == buf.len() => return Ok(()),
                 n => buf = &mut buf[n..],
             }
@@ -221,7 +222,7 @@ impl<'a> ClusterChain<'a> {
             None => {
                 let sector = cluster_to_sector(self.boot, cluster.index) + cluster.sector_index;
 
-                let data = BufferHead::block_read(self.sb, sector).ok_or(Error::ENOMEM)?;
+                let data = BufferHead::block_read(self.sb, sector).ok_or(ENOMEM)?;
 
                 if self.readahead {
                     data.readahead(self.sb);

@@ -4,13 +4,14 @@ use crate::inode::{Inode, InodeExt, InodeInfo};
 use crate::superblock::{take_sb, SuperBlockExt, SuperBlockInfo};
 use core::cmp::min;
 use kernel::bindings::{
-    address_space, address_space_operations as AddressSpaceOperations, buffer_delay,
-    buffer_head as BufferHead, clear_buffer_delay, dentry, file, iattr,
-    inode_operations as InodeOperations, iov_iter, kiocb, kstat, loff_t, map_bh, mpage_readahead,
-    mpage_readpage, page, path, readahead_control, sector_t, user_namespace, writeback_control,
+    address_space, address_space_operations as AddressSpaceOperations, block_dirty_folio,
+    block_invalidate_folio, buffer_delay, buffer_head as BufferHead, clear_buffer_delay, dentry,
+    file, iattr, inode_operations as InodeOperations, iov_iter, kiocb, kstat, loff_t, map_bh,
+    mpage_readahead, mpage_readpage, page, path, readahead_control, sector_t, user_namespace,
+    writeback_control,
 };
 use kernel::c_types::{c_int, c_uint, c_void};
-use kernel::{Error, Result};
+use kernel::prelude::*;
 
 pub(crate) static FILE_INODE_OPERATIONS: InodeOperations = InodeOperations {
     getattr: None, // Doesn't appear like we need this, implement if necessary
@@ -63,6 +64,9 @@ extern "C" fn exfat_setattr(
 }
 
 pub(crate) static ADDRESS_OPERATIONS: AddressSpaceOperations = AddressSpaceOperations {
+    dirty_folio: Some(block_dirty_folio),
+    invalidate_folio: Some(block_invalidate_folio),
+
     readpage: Some(exfat_readpage),
     readahead: Some(exfat_readahead),
 
@@ -74,17 +78,14 @@ pub(crate) static ADDRESS_OPERATIONS: AddressSpaceOperations = AddressSpaceOpera
     write_begin: Some(exfat_write_begin),
     write_end: Some(exfat_write_end),
     direct_IO: Some(exfat_direct_io),
-    set_page_dirty: Some(exfat_set_page_dirty),
 
     // Not implemented in exfat either, ignore
-    readpages: None,
-    invalidatepage: None,
+    launder_folio: None,
     releasepage: None,
     freepage: None,
     migratepage: None,
     isolate_page: None,
     putback_page: None,
-    launder_page: None,
     is_partially_uptodate: None,
     is_dirty_writeback: None,
     error_remove_page: None,
@@ -194,7 +195,7 @@ fn get_block(
     let cluster = FatChainReader::new(&sb_info.boot_sector_info, sb, inode.data_cluster)
         .skip(cluster_offset as usize)
         .next()
-        .unwrap_or(Err(Error::EIO))?;
+        .unwrap_or(Err(EIO))?;
 
     // /* Is this block already allocated? */
     //	err = exfat_map_cluster(inode, iblock >> sbi->sect_per_clus_bits,

@@ -9,8 +9,9 @@ use kernel::bindings::{
     fs_param_is_u32, fs_param_type, fs_parameter as FsParameter, fs_parameter_spec, fs_parse,
     fs_parse_result as FsParseResult, make_kgid, make_kuid,
 };
+use kernel::c_types;
+use kernel::prelude::*;
 use kernel::str::CStr;
-use kernel::{c_types, Error, Result};
 
 /// Specification of the type of value a parameter wants.
 ///
@@ -169,7 +170,7 @@ impl ExfatOptions {
             12 => Self::Namecase,
             13 => Self::Codepage,
             // TODO: This might cause a problem as the C code doesn't do it this way.
-            _ => return Err(Error::EINVAL),
+            _ => return Err(EINVAL),
         })
     }
 }
@@ -277,7 +278,7 @@ fn parse_param(fc: &mut FsContext, parameter: &mut FsParameter) -> Result<i32> {
     if opt_res < 0 {
         // TODO: Should return opt but from_kernel_errno is not public
         return Ok(opt_res);
-        // return Err(Error::EINVAL);
+        // return Err(EINVAL);
     }
 
     // SAFETY: Since opt_res was not an error, parse_result should have been initialized
@@ -344,7 +345,7 @@ fn parse_param(fc: &mut FsContext, parameter: &mut FsParameter) -> Result<i32> {
             if unsafe { parse_result.__bindgen_anon_1.int_32 } < -24 * 60
                 || unsafe { parse_result.__bindgen_anon_1.int_32 } > 24 * 60
             {
-                return Err(Error::EINVAL);
+                return Err(EINVAL);
             }
 
             // SAFETY: Due to opt being TimeOffset, the result should be a int_32
