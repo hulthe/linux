@@ -1,5 +1,6 @@
 use crate::charsets::{MAX_CHARSET_SIZE, MAX_NAME_LEN};
 use crate::directory::{DirEntry, DirEntryReader};
+use crate::hint::ClusterHint;
 use crate::inode::{InodeExt, InodeInfo};
 use crate::superblock::{take_sb, SbInfo, SbState, SuperBlockInfo};
 use core::ptr::null_mut;
@@ -44,7 +45,7 @@ fn find_dir<'a>(
     inode: &mut InodeInfo,
     name: &str,
 ) -> Result<DirEntry> {
-    // TODO: Add name hashing optimization & hint optimization.
+    // TODO: Add name hashing optimization
 
     fn find_entry(reader: impl Iterator<Item = Result<DirEntry>>, name: &str) -> Result<DirEntry> {
         for entry in reader {
@@ -58,21 +59,32 @@ fn find_dir<'a>(
         Err(ENOENT)
     }
 
-    let mut reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
-    let entry = if inode.hint_last_file_index > 0 {
-        reader
-            .entries
-            .advance_by((inode.hint_last_file_index) as usize)?;
-        let from_zero_reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
-        let hint_reader = reader.chain(from_zero_reader.take_while(|e| match e {
-            Ok(entry) => entry.index < inode.hint_last_file_index,
-            Err(_) => true,
-        }));
+    let entry = if inode.hint_last_dentry_index > 0 {
+        let from_hint_reader = DirEntryReader::new_at(
+            sb_info,
+            sb_state,
+            inode.data_cluster,
+            inode.hint_last_dentry_index,
+            inode.hint_last_dentry,
+        )?;
+
+        let from_start_reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?
+            .take_while(|e| match e {
+                Ok(entry) => entry.index < inode.hint_last_dentry_index,
+                Err(_) => true,
+            });
+
+        // start reading from the hint location, and fall back to reading from the start
+        let hint_reader = from_hint_reader.chain(from_start_reader);
         find_entry(hint_reader, name)?
     } else {
+        let reader = DirEntryReader::new(sb_info, sb_state, inode.data_cluster)?;
         find_entry(reader, name)?
     };
-    inode.hint_last_file_index = entry.index;
+
+    let cluster_offset = entry.index / sb_info.dir_entries_per_cluster;
+    inode.hint_last_dentry = ClusterHint::new(entry.cluster_index, cluster_offset);
+    inode.hint_last_dentry_index = entry.index;
     Ok(entry)
 }
 

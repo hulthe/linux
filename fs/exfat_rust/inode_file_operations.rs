@@ -1,5 +1,6 @@
 use crate::fat::FatChainReader;
 use crate::from_kernel_result;
+use crate::hint::ClusterHint;
 use crate::inode::{Inode, InodeExt, InodeInfo};
 use crate::superblock::{take_sb, SuperBlockExt, SuperBlockInfo};
 use core::cmp::min;
@@ -192,10 +193,19 @@ fn get_block(
     // TODO: tmp code
     let cluster_offset = (iblock >> sb_info.boot_sector_info.sect_per_clus_bits) as u32;
 
-    let cluster = FatChainReader::new(&sb_info.boot_sector_info, sb, inode.data_cluster)
-        .skip(cluster_offset as usize)
-        .next()
-        .unwrap_or(Err(EIO))?;
+    let mut reader = match inode.hint_last_cluster {
+        Some(hint) if cluster_offset >= hint.offset => {
+            FatChainReader::new(&sb_info.boot_sector_info, sb, hint.index.into())
+                .skip((cluster_offset - hint.offset) as usize)
+        }
+
+        _ => FatChainReader::new(&sb_info.boot_sector_info, sb, inode.data_cluster)
+            .skip(cluster_offset as usize),
+    };
+
+    let cluster = reader.next().unwrap_or(Err(EIO))?;
+
+    inode.hint_last_cluster = ClusterHint::new(cluster, cluster_offset);
 
     // /* Is this block already allocated? */
     //	err = exfat_map_cluster(inode, iblock >> sbi->sect_per_clus_bits,

@@ -56,7 +56,10 @@ pub(crate) struct InodeInfo {
     pub(crate) hint_last_cluster: Option<ClusterHint>,
 
     /// The last file that was looked up in this directory
-    pub(crate) hint_last_file_index: u32,
+    pub(crate) hint_last_dentry_index: u32,
+
+    /// Hint for the last file that was looked up in this directory
+    pub(crate) hint_last_dentry: Option<ClusterHint>,
 
     /// The start of the cluster chain that contains the data for this inode
     pub(crate) data_cluster: ClusterIndex,
@@ -236,7 +239,8 @@ impl PtrInit for InodeInfo {
             entry_index: 0,
 
             hint_last_cluster: None,
-            hint_last_file_index: 0,
+            hint_last_dentry_index: 0,
+            hint_last_dentry: None,
 
             data_cluster: 0,
 

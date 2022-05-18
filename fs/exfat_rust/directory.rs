@@ -68,7 +68,7 @@ pub(crate) enum ExFatDirEntryKind {
     // Critical primary
     AllocationBitmap(AllocationBitmap),
     UpCaseTable(UpCaseTable),
-    VolumeLabel(VolumeLabel), // TODO
+    VolumeLabel(VolumeLabel),
     File(File),
 
     // Benign primary
