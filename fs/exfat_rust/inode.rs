@@ -3,7 +3,7 @@ pub(crate) mod hash_table;
 pub(crate) use self::hash_table::InodeHashTable;
 
 use crate::directory::file::{FileAttributes, ROOT_FILE_ATTRIBUTE};
-use crate::directory::{DirEntry, ExFatDirEntryKind, ExFatDirEntryReader};
+use crate::directory::{count_subdirectories, DirEntry};
 use crate::fat::{ClusterIndex, FatChainReader};
 use crate::file_operations::FILE_OPERATIONS;
 use crate::file_ops::DIR_OPERATIONS;
@@ -14,6 +14,7 @@ use crate::kmem_cache::KMemCache;
 use crate::kmem_cache::PtrInit;
 use crate::math::{self, round_up_to_next_multiple};
 use crate::superblock::{SbInfo, SbState, SuperBlock, SuperBlockInfo};
+use crate::util::count_oks;
 use crate::EXFAT_ROOT_INO;
 use core::mem::align_of;
 use core::ptr::{null_mut, NonNull};
@@ -125,10 +126,10 @@ impl InodeInfo {
         inode_unique_num(self.dir_cluster, self.entry_index)
     }
 
-    fn fill(&mut self, sb_info: &SbInfo, sb_state: &SbState<'_>, dir: &DirEntry) {
-        self.dir_cluster = dir.chain_start;
-        self.entry_index = dir.index;
-        self.data_cluster = dir.data_cluster;
+    fn fill(&mut self, sb_info: &SbInfo, sb_state: &SbState<'_>, entry: &DirEntry) {
+        self.dir_cluster = entry.chain_start;
+        self.entry_index = entry.index;
+        self.data_cluster = entry.data_cluster;
         //ei->dir = info->dir;
         //ei->entry = info->entry;
         //ei->attr = info->attr;
@@ -148,18 +149,19 @@ impl InodeInfo {
         unsafe { inode_inc_iversion(&mut self.vfs_inode) };
         self.vfs_inode.i_generation = unsafe { prandom_u32() };
 
-        if dir.attrs.directory() {
+        if entry.attrs.directory() {
             self.vfs_inode.i_generation &= !1u32; // unset the lowest bit
-            self.vfs_inode.i_mode = dir.attrs.to_unix(0o777, sb_info);
+            self.vfs_inode.i_mode = entry.attrs.to_unix(0o777, sb_info);
             self.vfs_inode.i_op = &DIR_INODE_OPERATIONS;
             self.vfs_inode.__bindgen_anon_3.i_fop = unsafe { &DIR_OPERATIONS };
 
-            // set_nlink(&mut self.vfs_inode, dir.num_subdirs); // TODO
-            unsafe { set_nlink(&mut self.vfs_inode, 0) };
+            let num_subdirs = count_subdirectories(sb_info, sb_state, entry.data_cluster)
+                .unwrap_or(0 /* TODO: error handling? */);
+            unsafe { set_nlink(&mut self.vfs_inode, num_subdirs) };
         } else {
             // regular file
             self.vfs_inode.i_generation |= 1; // set the lowest bit
-            self.vfs_inode.i_mode = dir.attrs.to_unix(0o777, sb_info);
+            self.vfs_inode.i_mode = entry.attrs.to_unix(0o777, sb_info);
             self.vfs_inode.i_op = &FILE_INODE_OPERATIONS as *const _;
             // SAFETY: TODO
             self.vfs_inode.__bindgen_anon_3.i_fop = unsafe { &FILE_OPERATIONS as *const _ };
@@ -171,7 +173,7 @@ impl InodeInfo {
         }
 
         // TODO: make sure data_length is what we're supposed to be using
-        let mut size = dir.data_length;
+        let mut size = entry.data_length;
         unsafe { i_size_write(&mut self.vfs_inode, size as i64) };
 
         // ondisk and aligned size should be aligned with block size
@@ -190,9 +192,9 @@ impl InodeInfo {
             sb_info.boot_sector_info.cluster_size as u64,
         ) >> self.vfs_inode.i_blkbits;
 
-        self.vfs_inode.i_mtime = dir.modified_time;
-        self.vfs_inode.i_ctime = dir.modified_time; // TODO: unsure why ctime is set to mtime here?
-        self.vfs_inode.i_atime = dir.access_time;
+        self.vfs_inode.i_mtime = entry.modified_time;
+        self.vfs_inode.i_ctime = entry.modified_time; // TODO: unsure why ctime is set to mtime here?
+        self.vfs_inode.i_atime = entry.access_time;
         //self.i_crtime = dir.create_time; // TODO
     }
 
@@ -313,25 +315,13 @@ pub(crate) fn read_root_inode(inode: &mut Inode, sbi: &mut SuperBlockInfo<'_>) -
     info.data_cluster = root_dir;
     let chain_reader = FatChainReader::new(&sb_info.boot_sector_info, sb, root_dir);
 
-    fn count_oks<T>(bucket: Result<u32>, item: Result<T>) -> Result<u32> {
-        let _ = item?;
-        Ok(bucket? + 1)
-    }
-
     let num_clusters = chain_reader.fold(Ok(0), count_oks)?;
 
     let clusters_size = (num_clusters << sbi.info.boot_sector_info.cluster_size_bits) as i64;
     // SAFETY: TODO
     unsafe { i_size_write(inode, clusters_size) };
 
-    let dir_reader = ExFatDirEntryReader::new(&sb_info.boot_sector_info, sb_state, root_dir)?;
-    let num_subdirs = dir_reader
-        .filter_map(|dir_entry| match dir_entry.map(|e| e.kind) {
-            Err(e) => Some(Err(e)),
-            Ok(ExFatDirEntryKind::File(file)) => file.file_attributes.directory().then(|| Ok(())),
-            _ => None,
-        })
-        .fold(Ok(0), count_oks)? as u32;
+    let num_subdirs = count_subdirectories(sb_info, sb_state, root_dir)?;
 
     // SAFETY: TODO
     unsafe { set_nlink(inode, num_subdirs + EXFAT_MIN_SUBDIR) };

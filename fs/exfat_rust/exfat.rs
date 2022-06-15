@@ -20,6 +20,7 @@ mod math;
 mod super_operations;
 mod superblock;
 mod upcase;
+mod util;
 
 use crate::allocation_bitmap::load_allocation_bitmap;
 use crate::directory::EXFAT_DIR_ENTRY_SIZE_BITS;

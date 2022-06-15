@@ -51,7 +51,7 @@ fn find_dir<'a>(
         for entry in reader {
             let entry = entry?;
 
-            if entry.name == name {
+            if &*entry.name == name {
                 return Ok(entry);
             }
         }

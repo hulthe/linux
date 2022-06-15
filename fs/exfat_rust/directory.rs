@@ -3,6 +3,7 @@
 pub(crate) mod allocation_bitmap;
 pub(crate) mod file;
 pub(crate) mod file_name;
+pub(crate) mod names;
 pub(crate) mod stream_extension;
 pub(crate) mod upcase;
 pub(crate) mod volume_label;
@@ -14,11 +15,12 @@ use stream_extension::StreamExtension;
 use upcase::UpCaseTable;
 use volume_label::VolumeLabel;
 
+use self::names::PathStr;
 use crate::fat::ClusterIndex;
 use crate::heap::ClusterChain;
 use crate::hint::ClusterHint;
 use crate::superblock::{BootSectorInfo, SbInfo, SbState};
-use alloc::string::String;
+use crate::util::count_oks;
 use core::iter::FusedIterator;
 use core::ops::Range;
 use kernel::bindings::timespec64;
@@ -235,7 +237,7 @@ pub(crate) struct DirEntry {
     /// The index of the *next* ExFatDirEntry File within the directory set
     pub(crate) next_index: u32,
 
-    pub(crate) name: String,
+    pub(crate) name: PathStr,
 
     pub(crate) attrs: FileAttributes,
 
@@ -323,11 +325,10 @@ impl Iterator for DirEntryReader<'_> {
         // one FileName contains up to 15 UTF-16 code points
         let number_of_file_name_entries = (name_length - 1) / 15 + 1;
 
-        let mut name_buffer: Vec<u8> = Vec::new();
-        if let Err(e) = name_buffer.try_reserve(name_length) {
-            pr_err!("Failed to allocate namebuffer");
-            return Some(Err(e.into()));
-        }
+        let mut name = match PathStr::new() {
+            Ok(s) => s,
+            Err(e) => return Some(Err(e)),
+        };
 
         for _ in 0..number_of_file_name_entries {
             let file_name_entry = match self.entries.next() {
@@ -351,26 +352,19 @@ impl Iterator for DirEntryReader<'_> {
 
             for c in file_name_entry.chars() {
                 let c = match c {
-                    Err(_e) => return Some(Err(EIO)), // TODO: not sure which error
+                    Err(e) => {
+                        pr_err!("Error, failed to read file name entry: {:?}", e);
+                        return Some(Err(EIO)); // TODO: not sure which error
+                    }
                     Ok(c) => c,
                 };
 
-                let mut utf8_buf = [0u8; 4];
-                let encoded = c.encode_utf8(&mut utf8_buf);
-                if let Err(e) = name_buffer.try_extend_from_slice(encoded.as_bytes()) {
+                if let Err(e) = name.push(c) {
                     pr_err!("Failed to append to namebuffer");
-                    return Some(Err(e.into()));
+                    return Some(Err(e));
                 }
             }
         }
-
-        let name = match String::from_utf8(name_buffer) {
-            Ok(v) => v,
-            Err(err) => {
-                pr_err!("Failed to convert namebuffer to utf8, err {}", err);
-                return Some(Err(EINVAL)); // TODO: Not sure about error...
-            }
-        };
 
         let dir_entry = DirEntry {
             data_cluster: stream_ext.first_cluster.to_native(),
@@ -390,4 +384,19 @@ impl Iterator for DirEntryReader<'_> {
         };
         Some(Ok(dir_entry))
     }
+}
+
+/// Count the number of subdirectories in the directory set specified by `dir_cluster`
+pub(crate) fn count_subdirectories(
+    sb_info: &SbInfo,
+    sb_state: &SbState<'_>,
+    dir_cluster: u32,
+) -> Result<u32> {
+    ExFatDirEntryReader::new(&sb_info.boot_sector_info, sb_state, dir_cluster)?
+        .filter_map(|dir_entry| match dir_entry.map(|e| e.kind) {
+            Err(e) => Some(Err(e)),
+            Ok(ExFatDirEntryKind::File(file)) => file.file_attributes.directory().then(|| Ok(())),
+            _ => None,
+        })
+        .fold(Ok(0), count_oks)
 }
